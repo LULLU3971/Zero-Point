@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <!-- 모바일 줌 방지 및 터치 최적화 메타 태그 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Zero Point: Ranking Battle</title>
+  
+  <!-- React & Tailwind CSS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* 터치 조작감 개선 */
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-tap-highlight-color: transparent; }
+    body { font-family: system-ui, -apple-system, sans-serif; background-color: #1a2e1a; touch-action: manipulation; }
+    
+    /* Animations */
+    @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+    .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .animate-shake { animation: shake 0.2s ease-in-out infinite; }
+    
+    /* Scrollbar */
+    .custom-scroll::-webkit-scrollbar { width: 4px; }
+    .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+    .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    // ==========================================
+    // [STEP 1] Firebase 설정 (사용자 설정 적용 완료)
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyBYV5nAO4sswR9prt88trv2u1L_f_kCyaU",
+      authDomain: "zero-9c4b4.firebaseapp.com",
+      projectId: "zero-9c4b4",
+      storageBucket: "zero-9c4b4.firebasestorage.app",
+      messagingSenderId: "1009247488012",
+      appId: "1:1009247488012:web:c11f59dce6b5aef9d38629",
+      measurementId: "G-C1329R3S78"
+    };
+
+    // Firebase Init
+    let db;
+    try {
+      if (firebaseConfig.projectId) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+      }
+    } catch (e) {
+      console.error("Firebase Connection Failed:", e);
+    }
+
+    const { useState, useEffect } = React;
+
+    // Icons
+    const Icons = {
+      Shuffle: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22"/><path d="m18 2 4 4-4 4"/><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"/><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"/><path d="m18 14 4 4-4 4"/></svg>,
+      RotateCcw: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>,
+      Plus: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>,
+      Minus: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/></svg>,
+      Zap: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+      Ban: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>,
+      Trophy: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+    };
+
+    const ZeroPointGame = () => {
+      const MAX_ROUNDS = 5;
+
+      const [gameState, setGameState] = useState('start');
+      const [playerHand, setPlayerHand] = useState([]);
+      const [aiHand, setAiHand] = useState([]);
+      const [playerCard, setPlayerCard] = useState(null);
+      const [aiCard, setAiCard] = useState(null);
+      const [originalPlayerCard, setOriginalPlayerCard] = useState(null);
+      const [originalAiCard, setOriginalAiCard] = useState(null);
+      const [playerScore, setPlayerScore] = useState(0);
+      const [aiScore, setAiScore] = useState(0);
+      const [round, setRound] = useState(1);
+      const [message, setMessage] = useState('');
+      const [playerSkills, setPlayerSkills] = useState([]);
+      const [aiSkills, setAiSkills] = useState([]);
+      const [usedCards, setUsedCards] = useState({ player: [], ai: [] });
+      const [skillLog, setSkillLog] = useState([]);
+      const [nullifyMode, setNullifyMode] = useState(false);
+      const [turnPhase, setTurnPhase] = useState('select');
+      const [resultType, setResultType] = useState(null);
+      
+      const [leaderboard, setLeaderboard] = useState([]);
+      const [showLeaderboard, setShowLeaderboard] = useState(false);
+      const [playerName, setPlayerName] = useState('');
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      
+      const [aiPattern, setAiPattern] = useState({ totalMoves: 0, lowPref: 0, midPref: 0, highPref: 0, earlyLow: 0, earlyHigh: 0, lateLow: 0, lateHigh: 0 });
+
+      const skillTypes = [
+        { id: 'retrieve', name: '회수', icon: 'RotateCcw', desc: '방금 낸 카드 회수', color: 'bg-blue-600' },
+        { id: 'opp-plus', name: '상대+1', icon: 'Plus', desc: '상대 카드 +1', color: 'bg-red-600' },
+        { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드 -1', color: 'bg-red-500' },
+        { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드 +1', color: 'bg-green-600' },
+        { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드 -1', color: 'bg-green-500' },
+        { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 2배', color: 'bg-yellow-600' },
+        { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드 랜덤', color: 'bg-purple-600' },
+        { id: 'nullify', name: '무력화', icon: 'Ban', desc: '스킬 무력화', color: 'bg-gray-700' }
+      ];
+
+      const getRandomSkill = () => skillTypes[Math.floor(Math.random() * skillTypes.length)];
+
+      // --- Ranking Functions ---
+      const fetchLeaderboard = async () => {
+        if (!db) return;
+        try {
+          const snapshot = await db.collection('scores').orderBy('score', 'desc').limit(10).get();
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setLeaderboard(data);
+        } catch (error) {
+          console.error("Error fetching leaderboard:", error);
+        }
+      };
+
+      const submitScore = async () => {
+        if (!db || !playerName.trim()) return;
+        setIsSubmitting(true);
+        try {
+          await db.collection('scores').add({
+            name: playerName.trim(),
+            score: playerScore,
+            date: new Date(),
+            aiLevel: 'Normal'
+          });
+          await fetchLeaderboard();
+          setIsSubmitting(false);
+          setGameState('start');
+          setShowLeaderboard(true);
+        } catch (error) {
+          console.error("Error saving score:", error);
+          alert("점수 저장 실패: " + error.message);
+          setIsSubmitting(false);
+        }
+      };
+
+      useEffect(() => { if(showLeaderboard) fetchLeaderboard(); }, [showLeaderboard]);
+
+      // --- Game Logic ---
+      const initGame = () => {
+        const deck = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        setPlayerHand([...deck]);
+        setAiHand([...deck]);
+        setPlayerCard(null);
+        setAiCard(null);
+        setOriginalPlayerCard(null);
+        setOriginalAiCard(null);
+        setGameState('playing');
+        setTurnPhase('select');
+        setMessage('카드를 선택하세요');
+        setUsedCards({ player: [], ai: [] });
+        setSkillLog([]);
+        setResultType(null);
+      };
+
+      const resetCampaign = () => {
+        setRound(1);
+        setPlayerScore(0);
+        setAiScore(0);
+        setPlayerSkills([]);
+        setAiSkills([]);
+        initGame();
+        grantRoundSkills(1);
+      };
+
+      const grantRoundSkills = (roundNum) => {
+        const newPlayerSkills = Array(roundNum).fill(null).map(() => getRandomSkill());
+        const newAiSkills = Array(roundNum).fill(null).map(() => getRandomSkill());
+        setPlayerSkills(prev => [...prev, ...newPlayerSkills]);
+        setAiSkills(prev => [...prev, ...newAiSkills]);
+      };
+
+      const learnPattern = (card, handSize) => {
+        setAiPattern(prev => {
+          const newPattern = { ...prev };
+          newPattern.totalMoves++;
+          if (card <= 3) newPattern.lowPref++; else if (card <= 6) newPattern.midPref++; else newPattern.highPref++;
+          if (handSize > 6) { if (card <= 4) newPattern.earlyLow++; else newPattern.earlyHigh++; } 
+          else { if (card <= 4) newPattern.lateLow++; else newPattern.lateHigh++; }
+          return newPattern;
+        });
+      };
+
+      const aiSelectCard = (hand) => {
+        const p = aiPattern;
+        if (p.totalMoves < 5) return hand[Math.floor(Math.random() * hand.length)];
+        let candidates = [...hand];
+        if (hand.length <= 5 && p.lateHigh > p.lateLow) {
+             const lowCards = hand.filter(c => c <= 4);
+             if (lowCards.length > 0) candidates = lowCards;
+        }
+        return candidates[Math.floor(Math.random() * candidates.length)];
+      };
+
+      const applySkillValue = (baseValue, skillId) => {
+        if (baseValue === null) return null;
+        switch(skillId) {
+          case 'opp-plus': case 'self-plus': return baseValue + 1 > 10 ? 0 : baseValue + 1; 
+          case 'opp-minus': case 'self-minus': return baseValue - 1 < 0 ? 10 : baseValue - 1; 
+          case 'double': return (baseValue * 2) % 11;
+          case 'random': return Math.floor(Math.random() * 11);
+          default: return baseValue;
+        }
+      };
+
+      const calculateCurrentValues = (currentLog, pOriginal, aOriginal) => {
+        let pCard = pOriginal, aCard = aOriginal;
+        currentLog.filter(l => !l.nullified).forEach(log => {
+          if (log.target === 'player') pCard = applySkillValue(pCard, log.skillId);
+          else if (log.target === 'ai') aCard = applySkillValue(aCard, log.skillId);
+        });
+        return { pCard, aCard };
+      };
+
+      const getWinner = (p, a) => {
+        if (p === a) return 'draw';
+        if (p === 10 && a === 0) return 'player-win';
+        if (a === 10 && p === 0) return 'ai-win';
+        return p < a ? 'player-win' : 'ai-win';
+      };
+
+      const aiUseSkill = (currentPCard, currentACard) => {
+        if (aiSkills.length === 0) return;
+        const currentResult = getWinner(currentPCard, currentACard);
+        if (currentResult === 'ai-win') return;
+
+        const usableSkills = aiSkills.map((skill, index) => ({ skill, index })).filter(({ skill }) => skill.id !== 'nullify' && skill.id !== 'retrieve');
+
+        for (const { skill, index } of usableSkills) {
+          let tempP = currentPCard, tempA = currentACard;
+          if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id);
+          else tempA = applySkillValue(tempA, skill.id);
+
+          const newResult = getWinner(tempP, tempA);
+          if (newResult === 'ai-win' || (newResult === 'draw' && currentResult === 'player-win')) {
+            const newLog = { id: Date.now() + Math.random(), user: 'AI', skill, skillId: skill.id, target: skill.id.startsWith('opp-') ? 'player' : 'ai', nullified: false };
+            const updatedLogs = [...skillLog, newLog];
+            setSkillLog(updatedLogs);
+            const { pCard, aCard } = calculateCurrentValues(updatedLogs, originalPlayerCard, originalAiCard);
+            setPlayerCard(pCard); setAiCard(aCard);
+            setAiSkills(prev => prev.filter((_, i) => i !== index));
+            return; 
+          }
+        }
+      };
+
+      useEffect(() => {
+        if (turnPhase === 'skill' && aiSkills.some(s => s.id === 'nullify')) {
+          const lastLog = skillLog[skillLog.length - 1];
+          if (lastLog && lastLog.user === '플레이어' && !lastLog.nullified) {
+            const { pCard, aCard } = calculateCurrentValues(skillLog, originalPlayerCard, originalAiCard);
+            if (getWinner(pCard, aCard) === 'player-win') {
+              setTimeout(() => {
+                 const nullifyIndex = aiSkills.findIndex(s => s.id === 'nullify');
+                 const newLogs = skillLog.map(l => l.id === lastLog.id ? { ...l, nullified: true } : l);
+                 setSkillLog(newLogs);
+                 setAiSkills(prev => prev.filter((_, i) => i !== nullifyIndex));
+                 const recalculated = calculateCurrentValues(newLogs, originalPlayerCard, originalAiCard);
+                 setPlayerCard(recalculated.pCard); setAiCard(recalculated.aCard);
+              }, 1000);
+            }
+          }
+        }
+      }, [skillLog, turnPhase]);
+
+      const playCard = (card) => {
+        if (gameState !== 'playing' || turnPhase !== 'select') return;
+        learnPattern(card, playerHand.length);
+        setOriginalPlayerCard(card); setPlayerCard(card);
+        setPlayerHand(prev => prev.filter(c => c !== card));
+        setUsedCards(prev => ({ ...prev, player: [...prev.player, card] }));
+        const aiSelected = aiSelectCard(aiHand);
+        setOriginalAiCard(aiSelected); setAiCard(aiSelected);
+        setAiHand(prev => prev.filter(c => c !== aiSelected));
+        setUsedCards(prev => ({ ...prev, ai: [...prev.ai, aiSelected] }));
+        setTurnPhase('skill'); setMessage('스킬 사용 단계'); setSkillLog([]);
+        setTimeout(() => aiUseSkill(card, aiSelected), 600);
+      };
+
+      const useSkill = (skill, skillIndex) => {
+        if (turnPhase !== 'skill') return;
+        if (skill.id === 'nullify') { setNullifyMode(true); setMessage('무력화할 스킬 선택'); return; }
+        if (skill.id === 'retrieve') {
+          if (originalPlayerCard !== null) {
+             setPlayerHand(prev => [...prev, originalPlayerCard].sort((a,b) => a-b));
+             setPlayerCard(null); setOriginalPlayerCard(null); setAiCard(null); setOriginalAiCard(null);
+             setAiHand(prev => [...prev, originalAiCard].sort((a,b) => a-b));
+             setTurnPhase('select'); setMessage('카드를 회수했습니다.'); setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex)); setSkillLog([]); 
+             return;
+          }
+        }
+        const target = skill.id.startsWith('opp-') ? 'ai' : 'player';
+        const newLog = { id: Date.now(), user: '플레이어', skill, skillId: skill.id, target, nullified: false };
+        const nextLogs = [...skillLog, newLog];
+        setSkillLog(nextLogs);
+        const { pCard, aCard } = calculateCurrentValues(nextLogs, originalPlayerCard, originalAiCard);
+        setPlayerCard(pCard); setAiCard(aCard);
+        setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex));
+      };
+
+      const nullifySkill = (logId) => {
+        const nullifyIndex = playerSkills.findIndex(s => s.id === 'nullify');
+        if (nullifyIndex === -1) return;
+        const newLogs = skillLog.map(l => l.id === logId ? { ...l, nullified: true } : l);
+        setSkillLog(newLogs);
+        const { pCard, aCard } = calculateCurrentValues(newLogs, originalPlayerCard, originalAiCard);
+        setPlayerCard(pCard); setAiCard(aCard);
+        setPlayerSkills(prev => prev.filter((_, i) => i !== nullifyIndex));
+        setNullifyMode(false); setMessage('스킬이 무력화되었습니다.');
+      };
+
+      const confirmTurn = () => {
+        setTurnPhase('result');
+        const winner = getWinner(playerCard, aiCard);
+        let diff = Math.abs(playerCard - aiCard);
+        if ((playerCard===0 && aiCard===10) || (playerCard===10 && aiCard===0)) diff = 10;
+
+        if (winner === 'player-win') {
+          setPlayerScore(prev => prev + 1);
+          setResultType('win');
+          setMessage(`승리! (${playerCard} vs ${aiCard})`);
+        } else if (winner === 'ai-win') {
+          setAiScore(prev => prev + 1);
+          setResultType('lose');
+          setMessage(`패배! (${playerCard} vs ${aiCard})`);
+        } else {
+          setResultType('draw');
+          setMessage(`무승부! (${playerCard} vs ${aiCard})`);
+        }
+
+        if (diff === 1 || winner === 'draw') {
+          if (winner === 'player-win' || winner === 'draw') setPlayerSkills(prev => [...prev, getRandomSkill()]);
+          if (winner === 'ai-win' || winner === 'draw') setAiSkills(prev => [...prev, getRandomSkill()]);
+        }
+
+        if (playerHand.length === 0) {
+          setTimeout(() => {
+            if (round >= MAX_ROUNDS) {
+              setGameState('game-over');
+            } else {
+              setGameState('round-end');
+            }
+          }, 2000);
+        } else {
+          setTimeout(() => {
+            setPlayerCard(null); setAiCard(null); setOriginalPlayerCard(null); setOriginalAiCard(null);
+            setTurnPhase('select'); setMessage('카드를 선택하세요'); setSkillLog([]); setResultType(null);
+          }, 2000);
+        }
+      };
+
+      const nextRound = () => {
+        setRound(prev => prev + 1);
+        grantRoundSkills(round + 1);
+        initGame();
+      };
+
+      const Card = ({ number, isHidden, isSelected, onClick, disabled, isEnemy }) => (
+        <button onClick={onClick} disabled={disabled}
+          className={`relative w-14 h-20 sm:w-16 sm:h-24 rounded-lg border-2 shadow-lg transition-all duration-100 transform flex flex-col items-center justify-center
+            active:scale-95 touch-manipulation
+            ${isHidden ? 'bg-red-900 border-red-950 bg-opacity-90' : 'bg-white border-gray-300 hover:border-blue-500 sm:hover:-translate-y-1 text-gray-800'}
+            ${isSelected ? 'ring-4 ring-yellow-400 scale-105 z-10' : ''}
+            ${disabled && !isHidden ? 'opacity-50 cursor-not-allowed' : ''}`}>
+          {!isHidden && (<><span className="absolute top-1 left-1 text-xs font-bold">{number}</span><span className="text-2xl sm:text-4xl font-bold">{number}</span><span className="absolute bottom-1 right-1 text-xs font-bold transform rotate-180">{number}</span></>)}
+          {isHidden && (<div className="w-full h-full flex items-center justify-center opacity-20"><div className="w-8 h-8 rounded-full border-2 border-white"></div></div>)}
+        </button>
+      );
+
+      const LeaderboardModal = () => (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-pop">
+          <div className="bg-gray-800 w-full max-w-md rounded-xl border border-yellow-600/50 shadow-2xl p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-bold text-yellow-400 flex items-center gap-2"><Icons.Trophy /> Top Rankers</h3>
+              <button onClick={() => setShowLeaderboard(false)} className="text-gray-400 hover:text-white text-xl font-bold p-2">&times;</button>
+            </div>
+            <div className="space-y-2 mb-6 overflow-y-auto max-h-64 custom-scroll">
+              {leaderboard.length === 0 ? (
+                <div className="text-gray-500 text-center py-4">기록이 없거나 불러오는 중...<br/>(Firestore 설정 확인 필요)</div>
+              ) : (
+                leaderboard.map((entry, i) => (
+                  <div key={entry.id || i} className={`flex justify-between p-3 rounded ${i===0 ? 'bg-yellow-900/40 border border-yellow-600/30' : 'bg-gray-700'}`}>
+                    <div className="flex gap-3">
+                      <span className={`font-bold w-6 ${i===0 ? 'text-yellow-400' : i===1 ? 'text-gray-300' : i===2 ? 'text-amber-600' : 'text-gray-500'}`}>#{i+1}</span>
+                      <span className="text-white truncate max-w-[120px]">{entry.name}</span>
+                    </div>
+                    <span className="font-mono text-yellow-200 font-bold">{entry.score} pts</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => setShowLeaderboard(false)} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition active:scale-95">닫기</button>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="w-full min-h-screen flex items-center justify-center p-0 sm:p-4 overflow-hidden relative">
+          <div className="absolute inset-0 opacity-10 pointer-events-none" style={{backgroundImage: 'radial-gradient(circle, #ffffff 1px, transparent 1px)', backgroundSize: '20px 20px'}}></div>
+
+          {showLeaderboard && <LeaderboardModal />}
+
+          <div className="w-full max-w-5xl bg-green-900/90 backdrop-blur-sm sm:rounded-3xl shadow-2xl border-x-0 sm:border border-green-700 overflow-hidden flex flex-col lg:flex-row h-screen sm:h-auto sm:min-h-[650px]">
+            
+            {/* Game Area */}
+            <div className="flex-1 flex flex-col relative overflow-y-auto">
+              {/* AI Status Bar */}
+              <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-b border-white/10 shrink-0">
+                <div className="flex flex-col">
+                  <span className="text-red-300 font-bold text-sm">AI OPPONENT</span>
+                  <span className="text-xs text-gray-400">Lv. Normal</span>
+                </div>
+                <div className="text-2xl font-bold text-white font-mono">{aiScore}</div>
+              </div>
+
+              {/* Battle Arena */}
+              <div className="flex-1 flex flex-col items-center justify-center p-2 gap-4 min-h-[200px]">
+                <div className="flex flex-wrap justify-center gap-1 h-6">
+                  {aiSkills.slice(0, 6).map((skill, i) => <div key={i} className={`w-5 h-5 rounded ${skill.color} flex items-center justify-center shadow-sm`}><span className="text-[8px] text-white">⚡</span></div>)}
+                </div>
+                <div className="flex items-center gap-8">
+                   <div className="relative">
+                     <div className="absolute -top-6 w-full text-center text-xs text-gray-400">HAND: {aiHand.length}</div>
+                     {aiCard !== null ? <Card number={aiCard} isHidden={turnPhase === 'select' && !resultType} isEnemy={true} /> : <div className="w-14 h-20 sm:w-16 sm:h-24 border-2 border-dashed border-white/20 rounded-lg flex items-center justify-center text-white/20">Empty</div>}
+                   </div>
+                </div>
+              </div>
+
+              {/* Message Center */}
+              <div className={`py-2 text-center transition-colors duration-300 shrink-0 ${resultType === 'win' ? 'bg-blue-600/50' : resultType === 'lose' ? 'bg-red-600/50' : 'bg-black/20'}`}>
+                <h2 className="text-yellow-400 font-bold text-xs uppercase tracking-widest mb-1">Round {round} / {MAX_ROUNDS}</h2>
+                <div className="text-lg sm:text-xl text-white font-bold drop-shadow-md animate-pop px-2">{message}</div>
+                {turnPhase === 'skill' && <button onClick={confirmTurn} className="mt-2 px-6 py-2 bg-yellow-500 active:bg-yellow-600 text-black font-bold rounded-full text-sm shadow-lg active:scale-95 transition-transform">결과 확인 (Turn End)</button>}
+              </div>
+
+              {/* Player Area */}
+              <div className="flex-1 flex flex-col items-center justify-start p-2 sm:p-4 gap-3 bg-black/10">
+                 <div className="flex justify-center">{playerCard !== null ? <Card number={playerCard} isSelected={true} /> : <div className="w-14 h-20 sm:w-16 sm:h-24 border-2 border-dashed border-blue-400/30 rounded-lg flex items-center justify-center text-blue-200/30 text-sm">Select</div>}</div>
+                 
+                 <div className="flex flex-wrap justify-center gap-2 min-h-[32px]">
+                    {playerSkills.map((skill, i) => (
+                      <button key={i} onClick={() => useSkill(skill, i)} disabled={turnPhase !== 'skill'} 
+                        className={`px-3 py-2 sm:px-2 sm:py-1 ${skill.color} text-white rounded text-xs flex items-center gap-1 active:scale-95 touch-manipulation`}>
+                        <Icons.Zap /><span className="inline">{skill.name}</span>
+                      </button>
+                    ))}
+                 </div>
+                 
+                 <div className="w-full flex justify-center gap-2 flex-wrap pb-2">
+                   {playerHand.map((card, i) => <Card key={`${card}-${i}`} number={card} onClick={() => playCard(card)} disabled={turnPhase !== 'select'} />)}
+                 </div>
+              </div>
+
+              {/* Player Status Bar */}
+              <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-t border-white/10 shrink-0">
+                <div className="flex flex-col"><span className="text-blue-300 font-bold text-sm">PLAYER</span><span className="text-xs text-gray-400">10 beats 0</span></div>
+                <div className="text-2xl font-bold text-white font-mono">{playerScore}</div>
+              </div>
+            </div>
+
+            {/* Log Area (Sidebar on Desktop, Bottom on Mobile) */}
+            <div className="w-full lg:w-64 bg-black/40 border-t lg:border-t-0 lg:border-l border-white/10 p-4 flex flex-col max-h-48 lg:max-h-none shrink-0">
+              <h3 className="text-yellow-500 font-bold text-xs uppercase tracking-wider mb-2 sticky top-0">Battle Log {nullifyMode && <span className="text-red-500 blink">(Select Target)</span>}</h3>
+              <div className="flex-1 overflow-y-auto custom-scroll space-y-2 pr-1">
+                {skillLog.length === 0 && <div className="text-gray-500 text-xs text-center py-2">스킬 기록 없음</div>}
+                {skillLog.map((log) => (
+                  <div key={log.id} onClick={() => nullifyMode && !log.nullified && nullifySkill(log.id)} className={`p-2 rounded text-xs text-white ${log.nullified ? 'bg-gray-800 opacity-50' : log.skill.color} ${nullifyMode && !log.nullified ? 'cursor-pointer animate-shake ring-2 ring-white' : ''}`}>
+                    <div className="flex justify-between"><strong>{log.user}</strong>{log.nullified && <span className="text-red-300">무효</span>}</div>
+                    <div>{log.skill.name} <span className="opacity-75">→ {log.target}</span></div>
+                  </div>
+                ))}
+              </div>
+              {nullifyMode && <button onClick={() => setNullifyMode(false)} className="mt-2 w-full py-3 bg-gray-600 text-white text-xs rounded-lg active:scale-95">취소</button>}
+            </div>
+
+            {/* Overlays */}
+            {gameState === 'start' && (
+              <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6 text-center">
+                <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 mb-6">ZERO POINT</h1>
+                <div className="bg-green-800/50 border border-green-500/30 p-6 rounded-xl max-w-md w-full mb-8 text-white text-sm space-y-2 backdrop-blur">
+                  <p>★ <strong>5라운드</strong> 점수 경쟁</p>
+                  <p>★ <strong>작은 숫자</strong> 승리 (단, 10은 0을 이김)</p>
+                  <p>★ 1점차/무승부 시 스킬 획득</p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xs sm:max-w-none justify-center">
+                  <button onClick={resetCampaign} className="px-8 py-4 bg-yellow-500 active:bg-yellow-400 text-black font-bold rounded-full shadow-lg active:scale-95 transition-transform">START GAME</button>
+                  <button onClick={() => setShowLeaderboard(true)} className="px-6 py-4 bg-gray-700 active:bg-gray-600 text-white font-bold rounded-full shadow-lg active:scale-95">RANKING</button>
+                </div>
+              </div>
+            )}
+
+            {gameState === 'round-end' && (
+              <div className="absolute inset-0 bg-black/80 z-50 flex flex-col items-center justify-center animate-pop p-4 text-center">
+                <h2 className="text-3xl font-bold text-white mb-4">ROUND {round} COMPLETE</h2>
+                <div className="text-2xl text-white mb-8 font-mono border p-4 rounded-lg">Player {playerScore} : {aiScore} AI</div>
+                <button onClick={nextRound} className="w-full max-w-xs px-8 py-4 bg-blue-600 active:bg-blue-500 text-white font-bold rounded-lg active:scale-95 transition">Next Round</button>
+              </div>
+            )}
+
+            {gameState === 'game-over' && (
+              <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6 animate-pop text-center">
+                <h2 className="text-4xl font-bold text-yellow-400 mb-2">GAME FINISHED</h2>
+                <p className="text-gray-400 mb-6">총 5라운드 종료</p>
+                
+                <div className="bg-white/10 p-6 rounded-xl mb-8 w-full max-w-xs border border-white/20">
+                  <div className="text-sm text-gray-400 mb-1">YOUR FINAL SCORE</div>
+                  <div className="text-6xl font-black text-white">{playerScore}</div>
+                </div>
+
+                <div className="w-full max-w-xs space-y-3">
+                  <input 
+                    type="text" 
+                    maxLength="8"
+                    placeholder="이름 입력 (3-8자)" 
+                    className="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-600 text-white text-center focus:border-yellow-500 outline-none text-lg"
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value)}
+                  />
+                  <button 
+                    onClick={submitScore} 
+                    disabled={!playerName.trim() || isSubmitting}
+                    className="w-full py-4 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-lg transition flex justify-center items-center gap-2 active:scale-95"
+                  >
+                    {isSubmitting ? '저장 중...' : '점수 저장 & 랭킹 보기'}
+                  </button>
+                  <button onClick={() => setGameState('start')} className="w-full py-3 text-gray-400 active:text-white text-sm">메인으로 돌아가기</button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<ZeroPointGame />);
+  </script>
+</body>
+</html>
