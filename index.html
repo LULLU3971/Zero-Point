@@ -206,7 +206,6 @@
         return candidates[Math.floor(Math.random() * candidates.length)];
       };
 
-      // [CRITICAL FIX] 스킬 계산 로직: storedValue가 없으면 그대로 반환 (재추첨 금지)
       const applySkillValue = (baseValue, skillId, storedValue) => {
         if (baseValue === null || baseValue === undefined) return baseValue;
         let val = Number(baseValue);
@@ -221,7 +220,6 @@
             let doubled = Math.floor(val) * 2;
             return doubled > 10 ? doubled % 10 : doubled;
           case 'random': 
-            // [FIX] 저장된 값이 없으면 기본값 유지 (새로 안 뽑음!)
             if (storedValue !== undefined) return storedValue;
             return val; 
           default: return val;
@@ -254,18 +252,15 @@
 
         const currentResult = getWinner(currentPCard, currentACard);
         
-        // [IMPROVEMENT] AI가 지고 있다면 무력화 시도 (순서 앞당김)
         if (currentResult === 'player-win') {
-          // AI의 무력화 시도는 useEffect에서 처리되므로 여기서는 스킵
         } else if (currentResult === 'ai-win') {
-          return; // 이기고 있으면 스킬 아낌
+          return;
         }
 
         const usableSkills = aiSkills.map((skill, index) => ({ skill, index })).filter(({ skill }) => skill.id !== 'nullify' && skill.id !== 'retrieve');
         let chosenSkillIndex = -1;
         let chosenRandomVal = undefined;
 
-        // 1. 승리 가능한 스킬 탐색
         for (const { skill, index } of usableSkills) {
           let tempP = currentPCard, tempA = currentACard;
           let simulatedRandomVal = undefined;
@@ -284,16 +279,14 @@
           }
         }
 
-        // [IMPROVEMENT] 2. 승리 스킬이 없어도, 패배 확정이라면 '랜덤' 스킬로 도박 시도
         if (chosenSkillIndex === -1 && currentResult === 'player-win') {
           const randomIndex = aiSkills.findIndex(s => s.id === 'random');
           if (randomIndex !== -1) {
              chosenSkillIndex = randomIndex;
-             chosenRandomVal = Math.floor(Math.random() * 11); // 운에 맡김
+             chosenRandomVal = Math.floor(Math.random() * 11);
           }
         }
 
-        // 스킬 사용 실행
         if (chosenSkillIndex !== -1) {
             const skill = aiSkills[chosenSkillIndex];
             const newLog = { 
@@ -493,7 +486,6 @@
         </div>
       );
       
-      // [NEW] Rule Modal Component
       const RuleModal = () => (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-pop">
           <div className="bg-gray-900 w-full max-w-2xl rounded-xl border border-green-600/50 shadow-2xl p-6 flex flex-col max-h-[90vh]">
