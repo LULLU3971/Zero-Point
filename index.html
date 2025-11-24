@@ -29,6 +29,9 @@
     .custom-scroll::-webkit-scrollbar { width: 4px; }
     .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+    /* Tooltip Logic */
+    .skill-item:hover .skill-tooltip { display: flex; }
   </style>
 </head>
 <body>
@@ -79,8 +82,11 @@
       const [aiHand, setAiHand] = useState([]);
       const [playerCard, setPlayerCard] = useState(null);
       const [aiCard, setAiCard] = useState(null);
-      const [originalPlayerCard, setOriginalPlayerCard] = useState(null);
-      const [originalAiCard, setOriginalAiCard] = useState(null);
+      
+      // [FIX] Use Refs for Original Values to prevent Stale Closure bugs in AI Logic
+      const originalPlayerCardRef = useRef(null);
+      const originalAiCardRef = useRef(null);
+
       const [playerScore, setPlayerScore] = useState(0);
       const [aiScore, setAiScore] = useState(0);
       const [round, setRound] = useState(1);
@@ -91,7 +97,7 @@
       const [nullifyMode, setNullifyMode] = useState(false);
       const [turnPhase, setTurnPhase] = useState('select');
       const [resultType, setResultType] = useState(null);
-      const [showAiSkills, setShowAiSkills] = useState(false); // [NEW] AI 스킬 상세보기 상태
+      const [showAiSkills, setShowAiSkills] = useState(false);
       
       const [leaderboard, setLeaderboard] = useState([]);
       const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -106,7 +112,7 @@
         { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드 -1', color: 'bg-red-500' },
         { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드 +1', color: 'bg-green-600' },
         { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드 -1', color: 'bg-green-500' },
-        { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 2배 (11이상은 나머지)', color: 'bg-yellow-600' },
+        { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 2배', color: 'bg-yellow-600' },
         { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드 랜덤', color: 'bg-purple-600' },
         { id: 'nullify', name: '무력화', icon: 'Ban', desc: '스킬 무력화', color: 'bg-gray-700' }
       ];
@@ -153,14 +159,14 @@
         setAiHand([...deck]);
         setPlayerCard(null);
         setAiCard(null);
-        setOriginalPlayerCard(null);
-        setOriginalAiCard(null);
+        originalPlayerCardRef.current = null;
+        originalAiCardRef.current = null;
         setGameState('playing');
         setTurnPhase('select');
         setMessage('카드를 선택하세요');
         setSkillLog([]);
         setResultType(null);
-        setShowAiSkills(false); // 초기화
+        setShowAiSkills(false);
       };
 
       const resetCampaign = () => {
@@ -202,7 +208,7 @@
         return candidates[Math.floor(Math.random() * candidates.length)];
       };
 
-      // [BUG FIX] 2배 스킬 및 값 안전장치 강화
+      // [FIXED] 2배 스킬 계산 로직 및 NaN 방지
       const applySkillValue = (baseValue, skillId) => {
         if (baseValue === null || baseValue === undefined) return baseValue;
         let val = Number(baseValue);
@@ -214,16 +220,20 @@
           case 'opp-minus': case 'self-minus': 
             return val - 1 < 0 ? 10 : val - 1; 
           case 'double': 
-            // [FIX] 정확한 정수 계산 및 11 모듈러 연산 적용
-            return (Math.floor(val) * 2) % 11;
+            // [CRITICAL FIX] 정수형 변환 후 2배, 11모듈러
+            let doubled = Math.floor(val) * 2;
+            return doubled % 11;
           case 'random': 
             return Math.floor(Math.random() * 11);
           default: return val;
         }
       };
 
-      const calculateCurrentValues = (currentLog, pOriginal, aOriginal) => {
-        let pCard = pOriginal, aCard = aOriginal;
+      const calculateCurrentValues = (currentLog) => {
+        // [CRITICAL FIX] Use Refs instead of State to prevent Stale Closure
+        let pCard = originalPlayerCardRef.current;
+        let aCard = originalAiCardRef.current;
+
         currentLog.filter(l => !l.nullified).forEach(log => {
           if (log.target === 'player') pCard = applySkillValue(pCard, log.skillId);
           else if (log.target === 'ai') aCard = applySkillValue(aCard, log.skillId);
@@ -240,23 +250,32 @@
 
       const aiUseSkill = (currentPCard, currentACard) => {
         if (aiSkills.length === 0) return;
-        const currentResult = getWinner(currentPCard, currentACard);
         
+        // Ensure Refs are set (Double safety)
+        if (originalPlayerCardRef.current === null) originalPlayerCardRef.current = currentPCard;
+        if (originalAiCardRef.current === null) originalAiCardRef.current = currentACard;
+
+        // Initial check
+        const currentResult = getWinner(currentPCard, currentACard);
         if (currentResult === 'ai-win') return;
 
         const usableSkills = aiSkills.map((skill, index) => ({ skill, index })).filter(({ skill }) => skill.id !== 'nullify' && skill.id !== 'retrieve');
 
         for (const { skill, index } of usableSkills) {
           let tempP = currentPCard, tempA = currentACard;
+          
+          // Simulate skill effect on CURRENT calculated values
           if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id);
           else tempA = applySkillValue(tempA, skill.id);
 
           const newResult = getWinner(tempP, tempA);
+          
           if (newResult === 'ai-win' || (newResult === 'draw' && currentResult === 'player-win')) {
             const newLog = { id: Date.now() + Math.random(), user: 'AI', skill, skillId: skill.id, target: skill.id.startsWith('opp-') ? 'player' : 'ai', nullified: false };
             const updatedLogs = [...skillLog, newLog];
             setSkillLog(updatedLogs);
-            const { pCard, aCard } = calculateCurrentValues(updatedLogs, originalPlayerCard, originalAiCard);
+            
+            const { pCard, aCard } = calculateCurrentValues(updatedLogs);
             setPlayerCard(pCard); setAiCard(aCard);
             setAiSkills(prev => prev.filter((_, i) => i !== index));
             return; 
@@ -264,49 +283,61 @@
         }
       };
 
+      // AI Nullify Logic
       useEffect(() => {
         const aiNullifyIndex = aiSkills.findIndex(s => s.id === 'nullify');
         if (turnPhase === 'skill' && aiNullifyIndex !== -1) {
           const lastLog = skillLog[skillLog.length - 1];
           if (lastLog && lastLog.user === '플레이어' && !lastLog.nullified) {
-            const { pCard, aCard } = calculateCurrentValues(skillLog, originalPlayerCard, originalAiCard);
+            const { pCard, aCard } = calculateCurrentValues(skillLog);
             const currentWinner = getWinner(pCard, aCard);
+            
             if (currentWinner === 'player-win') {
               const timer = setTimeout(() => {
                  const newLogs = skillLog.map(l => l.id === lastLog.id ? { ...l, nullified: true } : l);
                  setSkillLog(newLogs);
                  setAiSkills(prev => prev.filter((_, i) => i !== aiNullifyIndex));
-                 const recalculated = calculateCurrentValues(newLogs, originalPlayerCard, originalAiCard);
+                 const recalculated = calculateCurrentValues(newLogs);
                  setPlayerCard(recalculated.pCard); setAiCard(recalculated.aCard);
               }, 1500);
               return () => clearTimeout(timer);
             }
           }
         }
-      }, [skillLog, turnPhase, aiSkills, originalPlayerCard, originalAiCard]);
+      }, [skillLog, turnPhase, aiSkills]);
 
       const playCard = (card) => {
         if (gameState !== 'playing' || turnPhase !== 'select') return;
         learnPattern(card, playerHand.length);
-        setOriginalPlayerCard(card); setPlayerCard(card);
+        
+        // [FIX] Set Refs immediately
+        originalPlayerCardRef.current = card;
+        setPlayerCard(card);
         setPlayerHand(prev => prev.filter(c => c !== card));
+        
         const aiSelected = aiSelectCard(aiHand);
-        setOriginalAiCard(aiSelected); setAiCard(aiSelected);
+        originalAiCardRef.current = aiSelected;
+        setAiCard(aiSelected);
         setAiHand(prev => prev.filter(c => c !== aiSelected));
+        
         setTurnPhase('skill'); setMessage('스킬 사용 단계'); setSkillLog([]);
         setTimeout(() => aiUseSkill(card, aiSelected), 600);
       };
 
       const useSkill = (skill, skillIndex) => {
         if (turnPhase !== 'skill') return;
-        if (originalPlayerCard === null) return;
+        if (originalPlayerCardRef.current === null) return;
 
         if (skill.id === 'nullify') { setNullifyMode(true); setMessage('무력화할 스킬 선택'); return; }
         if (skill.id === 'retrieve') {
-          if (originalPlayerCard !== null) {
-             setPlayerHand(prev => [...prev, originalPlayerCard].sort((a,b) => a-b));
-             setPlayerCard(null); setOriginalPlayerCard(null); setAiCard(null); setOriginalAiCard(null);
-             setAiHand(prev => [...prev, originalAiCard].sort((a,b) => a-b));
+          const originalP = originalPlayerCardRef.current;
+          const originalA = originalAiCardRef.current;
+          if (originalP !== null) {
+             setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
+             setPlayerCard(null); setAiCard(null);
+             originalPlayerCardRef.current = null; originalAiCardRef.current = null; // Reset Refs
+             
+             setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
              setTurnPhase('select'); setMessage('카드를 회수했습니다.'); setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex)); setSkillLog([]); 
              return;
           }
@@ -315,7 +346,7 @@
         const newLog = { id: Date.now(), user: '플레이어', skill, skillId: skill.id, target, nullified: false };
         const nextLogs = [...skillLog, newLog];
         setSkillLog(nextLogs);
-        const { pCard, aCard } = calculateCurrentValues(nextLogs, originalPlayerCard, originalAiCard);
+        const { pCard, aCard } = calculateCurrentValues(nextLogs);
         setPlayerCard(pCard); setAiCard(aCard);
         setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex));
       };
@@ -325,7 +356,7 @@
         if (nullifyIndex === -1) return;
         const newLogs = skillLog.map(l => l.id === logId ? { ...l, nullified: true } : l);
         setSkillLog(newLogs);
-        const { pCard, aCard } = calculateCurrentValues(newLogs, originalPlayerCard, originalAiCard);
+        const { pCard, aCard } = calculateCurrentValues(newLogs);
         setPlayerCard(pCard); setAiCard(aCard);
         setPlayerSkills(prev => prev.filter((_, i) => i !== nullifyIndex));
         setNullifyMode(false); setMessage('스킬이 무력화되었습니다.');
@@ -365,7 +396,8 @@
           }, 2000);
         } else {
           setTimeout(() => {
-            setPlayerCard(null); setAiCard(null); setOriginalPlayerCard(null); setOriginalAiCard(null);
+            setPlayerCard(null); setAiCard(null); 
+            originalPlayerCardRef.current = null; originalAiCardRef.current = null;
             setTurnPhase('select'); setMessage('카드를 선택하세요'); setSkillLog([]); setResultType(null);
           }, 2000);
         }
@@ -416,7 +448,6 @@
         </div>
       );
       
-      // Helper Component for Icons
       const SkillIcon = ({ iconName }) => {
         const Icon = Icons[iconName];
         return Icon ? <Icon /> : null;
@@ -437,7 +468,6 @@
                   <span className="text-xs text-gray-400">Lv. Normal</span>
                 </div>
                 <div className="flex items-center gap-3">
-                  {/* [NEW] AI Skill Toggle Switch */}
                   <button 
                     onClick={() => setShowAiSkills(!showAiSkills)}
                     className={`p-1.5 rounded-full transition-colors ${showAiSkills ? 'bg-yellow-500 text-black' : 'bg-gray-700 text-gray-400 hover:text-white'}`}
@@ -450,7 +480,6 @@
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-center p-2 gap-4 min-h-[200px]">
-                {/* [NEW] AI Skills Display Area */}
                 <div className={`flex flex-wrap justify-center gap-1.5 transition-all duration-300 ${showAiSkills ? 'min-h-[60px]' : 'h-8'}`}>
                   {aiSkills.map((skill, i) => (
                     showAiSkills ? (
