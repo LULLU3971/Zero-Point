@@ -29,9 +29,6 @@
     .custom-scroll::-webkit-scrollbar { width: 4px; }
     .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
     .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
-
-    /* Tooltip Logic */
-    .skill-item:hover .skill-tooltip { display: flex; }
   </style>
 </head>
 <body>
@@ -71,7 +68,8 @@
       Ban: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>,
       Trophy: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>,
       Eye: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>,
-      EyeOff: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7c.44 0 .87-.03 1.28-.08"/><line x1="2" y1="2" x2="22" y2="22"/></svg>
+      EyeOff: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7c.44 0 .87-.03 1.28-.08"/><line x1="2" y1="2" x2="22" y2="22"/></svg>,
+      BookOpen: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
     };
 
     const ZeroPointGame = () => {
@@ -83,7 +81,6 @@
       const [playerCard, setPlayerCard] = useState(null);
       const [aiCard, setAiCard] = useState(null);
       
-      // [FIX] Use Refs for Original Values to prevent Stale Closure bugs in AI Logic
       const originalPlayerCardRef = useRef(null);
       const originalAiCardRef = useRef(null);
 
@@ -101,20 +98,21 @@
       
       const [leaderboard, setLeaderboard] = useState([]);
       const [showLeaderboard, setShowLeaderboard] = useState(false);
+      const [showRules, setShowRules] = useState(false);
       const [playerName, setPlayerName] = useState('');
       const [isSubmitting, setIsSubmitting] = useState(false);
       
       const [aiPattern, setAiPattern] = useState({ totalMoves: 0, lowPref: 0, midPref: 0, highPref: 0, earlyLow: 0, earlyHigh: 0, lateLow: 0, lateHigh: 0 });
 
       const skillTypes = [
-        { id: 'retrieve', name: '회수', icon: 'RotateCcw', desc: '방금 낸 카드 회수', color: 'bg-blue-600' },
-        { id: 'opp-plus', name: '상대+1', icon: 'Plus', desc: '상대 카드 +1', color: 'bg-red-600' },
-        { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드 -1', color: 'bg-red-500' },
-        { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드 +1', color: 'bg-green-600' },
-        { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드 -1', color: 'bg-green-500' },
-        { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 2배', color: 'bg-yellow-600' },
-        { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드 랜덤', color: 'bg-purple-600' },
-        { id: 'nullify', name: '무력화', icon: 'Ban', desc: '스킬 무력화', color: 'bg-gray-700' }
+        { id: 'retrieve', name: '회수', icon: 'RotateCcw', desc: '방금 낸 카드를 손패로 회수합니다.', color: 'bg-blue-600' },
+        { id: 'opp-plus', name: '상대+1', icon: 'Plus', desc: '상대 카드의 숫자를 1 올립니다. (10→0)', color: 'bg-red-600' },
+        { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드의 숫자를 1 내립니다. (0→10)', color: 'bg-red-500' },
+        { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드의 숫자를 1 올립니다. (10→0)', color: 'bg-green-600' },
+        { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드의 숫자를 1 내립니다. (0→10)', color: 'bg-green-500' },
+        { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드를 2배로 만듭니다. (10 초과 시 일의 자리만 적용)', color: 'bg-yellow-600' },
+        { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드를 0~10 중 랜덤으로 변경합니다.', color: 'bg-purple-600' },
+        { id: 'nullify', name: '무력화', icon: 'Ban', desc: '이미 사용된 스킬 효과를 1개 취소합니다.', color: 'bg-gray-700' }
       ];
 
       const getRandomSkill = () => skillTypes[Math.floor(Math.random() * skillTypes.length)];
@@ -208,8 +206,8 @@
         return candidates[Math.floor(Math.random() * candidates.length)];
       };
 
-      // [FIXED] 2배 스킬 계산 로직 및 NaN 방지
-      const applySkillValue = (baseValue, skillId) => {
+      // [CRITICAL FIX] 스킬 계산 로직: storedValue가 없으면 그대로 반환 (재추첨 금지)
+      const applySkillValue = (baseValue, skillId, storedValue) => {
         if (baseValue === null || baseValue === undefined) return baseValue;
         let val = Number(baseValue);
         if (isNaN(val)) return baseValue;
@@ -220,23 +218,23 @@
           case 'opp-minus': case 'self-minus': 
             return val - 1 < 0 ? 10 : val - 1; 
           case 'double': 
-            // [CRITICAL FIX] 정수형 변환 후 2배, 11모듈러
             let doubled = Math.floor(val) * 2;
-            return doubled % 11;
+            return doubled > 10 ? doubled % 10 : doubled;
           case 'random': 
-            return Math.floor(Math.random() * 11);
+            // [FIX] 저장된 값이 없으면 기본값 유지 (새로 안 뽑음!)
+            if (storedValue !== undefined) return storedValue;
+            return val; 
           default: return val;
         }
       };
 
       const calculateCurrentValues = (currentLog) => {
-        // [CRITICAL FIX] Use Refs instead of State to prevent Stale Closure
         let pCard = originalPlayerCardRef.current;
         let aCard = originalAiCardRef.current;
 
         currentLog.filter(l => !l.nullified).forEach(log => {
-          if (log.target === 'player') pCard = applySkillValue(pCard, log.skillId);
-          else if (log.target === 'ai') aCard = applySkillValue(aCard, log.skillId);
+          if (log.target === 'player') pCard = applySkillValue(pCard, log.skillId, log.storedValue);
+          else if (log.target === 'ai') aCard = applySkillValue(aCard, log.skillId, log.storedValue);
         });
         return { pCard, aCard };
       };
@@ -251,39 +249,72 @@
       const aiUseSkill = (currentPCard, currentACard) => {
         if (aiSkills.length === 0) return;
         
-        // Ensure Refs are set (Double safety)
         if (originalPlayerCardRef.current === null) originalPlayerCardRef.current = currentPCard;
         if (originalAiCardRef.current === null) originalAiCardRef.current = currentACard;
 
-        // Initial check
         const currentResult = getWinner(currentPCard, currentACard);
-        if (currentResult === 'ai-win') return;
+        
+        // [IMPROVEMENT] AI가 지고 있다면 무력화 시도 (순서 앞당김)
+        if (currentResult === 'player-win') {
+          // AI의 무력화 시도는 useEffect에서 처리되므로 여기서는 스킵
+        } else if (currentResult === 'ai-win') {
+          return; // 이기고 있으면 스킬 아낌
+        }
 
         const usableSkills = aiSkills.map((skill, index) => ({ skill, index })).filter(({ skill }) => skill.id !== 'nullify' && skill.id !== 'retrieve');
+        let chosenSkillIndex = -1;
+        let chosenRandomVal = undefined;
 
+        // 1. 승리 가능한 스킬 탐색
         for (const { skill, index } of usableSkills) {
           let tempP = currentPCard, tempA = currentACard;
+          let simulatedRandomVal = undefined;
           
-          // Simulate skill effect on CURRENT calculated values
-          if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id);
-          else tempA = applySkillValue(tempA, skill.id);
+          if (skill.id === 'random') simulatedRandomVal = Math.floor(Math.random() * 11);
+
+          if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id, simulatedRandomVal);
+          else tempA = applySkillValue(tempA, skill.id, simulatedRandomVal);
 
           const newResult = getWinner(tempP, tempA);
           
           if (newResult === 'ai-win' || (newResult === 'draw' && currentResult === 'player-win')) {
-            const newLog = { id: Date.now() + Math.random(), user: 'AI', skill, skillId: skill.id, target: skill.id.startsWith('opp-') ? 'player' : 'ai', nullified: false };
+            chosenSkillIndex = index;
+            chosenRandomVal = simulatedRandomVal;
+            break; 
+          }
+        }
+
+        // [IMPROVEMENT] 2. 승리 스킬이 없어도, 패배 확정이라면 '랜덤' 스킬로 도박 시도
+        if (chosenSkillIndex === -1 && currentResult === 'player-win') {
+          const randomIndex = aiSkills.findIndex(s => s.id === 'random');
+          if (randomIndex !== -1) {
+             chosenSkillIndex = randomIndex;
+             chosenRandomVal = Math.floor(Math.random() * 11); // 운에 맡김
+          }
+        }
+
+        // 스킬 사용 실행
+        if (chosenSkillIndex !== -1) {
+            const skill = aiSkills[chosenSkillIndex];
+            const newLog = { 
+              id: Date.now() + Math.random(), 
+              user: 'AI', 
+              skill, 
+              skillId: skill.id, 
+              target: skill.id.startsWith('opp-') ? 'player' : 'ai', 
+              nullified: false,
+              storedValue: chosenRandomVal
+            };
+            
             const updatedLogs = [...skillLog, newLog];
             setSkillLog(updatedLogs);
             
             const { pCard, aCard } = calculateCurrentValues(updatedLogs);
             setPlayerCard(pCard); setAiCard(aCard);
-            setAiSkills(prev => prev.filter((_, i) => i !== index));
-            return; 
-          }
+            setAiSkills(prev => prev.filter((_, i) => i !== chosenSkillIndex));
         }
       };
 
-      // AI Nullify Logic
       useEffect(() => {
         const aiNullifyIndex = aiSkills.findIndex(s => s.id === 'nullify');
         if (turnPhase === 'skill' && aiNullifyIndex !== -1) {
@@ -310,7 +341,6 @@
         if (gameState !== 'playing' || turnPhase !== 'select') return;
         learnPattern(card, playerHand.length);
         
-        // [FIX] Set Refs immediately
         originalPlayerCardRef.current = card;
         setPlayerCard(card);
         setPlayerHand(prev => prev.filter(c => c !== card));
@@ -335,15 +365,30 @@
           if (originalP !== null) {
              setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
              setPlayerCard(null); setAiCard(null);
-             originalPlayerCardRef.current = null; originalAiCardRef.current = null; // Reset Refs
+             originalPlayerCardRef.current = null; originalAiCardRef.current = null;
              
              setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
              setTurnPhase('select'); setMessage('카드를 회수했습니다.'); setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex)); setSkillLog([]); 
              return;
           }
         }
+        
+        let simulatedRandomVal = undefined;
+        if (skill.id === 'random') {
+           simulatedRandomVal = Math.floor(Math.random() * 11);
+        }
+
         const target = skill.id.startsWith('opp-') ? 'ai' : 'player';
-        const newLog = { id: Date.now(), user: '플레이어', skill, skillId: skill.id, target, nullified: false };
+        const newLog = { 
+          id: Date.now(), 
+          user: '플레이어', 
+          skill, 
+          skillId: skill.id, 
+          target, 
+          nullified: false,
+          storedValue: simulatedRandomVal
+        };
+        
         const nextLogs = [...skillLog, newLog];
         setSkillLog(nextLogs);
         const { pCard, aCard } = calculateCurrentValues(nextLogs);
@@ -448,6 +493,47 @@
         </div>
       );
       
+      // [NEW] Rule Modal Component
+      const RuleModal = () => (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-pop">
+          <div className="bg-gray-900 w-full max-w-2xl rounded-xl border border-green-600/50 shadow-2xl p-6 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+              <h3 className="text-2xl font-bold text-green-400 flex items-center gap-2"><Icons.BookOpen /> 게임 설명서</h3>
+              <button onClick={() => setShowRules(false)} className="text-gray-400 hover:text-white text-xl font-bold p-2">&times;</button>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scroll space-y-6 pr-2 text-gray-200 text-sm leading-relaxed">
+              
+              <section>
+                <h4 className="text-lg font-bold text-yellow-400 mb-2">1. 기본 규칙</h4>
+                <ul className="list-disc list-inside space-y-1 ml-2">
+                  <li><strong>0부터 10까지</strong>의 숫자 카드를 한 장씩 냅니다.</li>
+                  <li>상대보다 <strong>작은 숫자</strong>를 내면 승리합니다. (예: 2 vs 5 → 2 승리)</li>
+                  <li>단, <strong>10은 0을 이깁니다.</strong> (0 vs 10 → 10 승리)</li>
+                  <li>비기거나 1 차이로 승부가 나면, 양쪽 모두에게 <strong>스킬 카드</strong>가 지급됩니다.</li>
+                </ul>
+              </section>
+
+              <section>
+                <h4 className="text-lg font-bold text-yellow-400 mb-2">2. 스킬 설명</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {skillTypes.map((skill) => (
+                    <div key={skill.id} className="bg-gray-800 p-3 rounded border border-gray-700 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 font-bold">
+                        <div className={`w-5 h-5 rounded ${skill.color} flex items-center justify-center shadow-sm text-white`}><SkillIcon iconName={skill.icon} /></div>
+                        <span className="text-white">{skill.name}</span>
+                      </div>
+                      <p className="text-xs text-gray-400">{skill.desc}</p>
+                      {skill.id === 'double' && <p className="text-[10px] text-yellow-200 mt-1">예: 6 → 12(2), 10 → 20(0), 5 → 10</p>}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <button onClick={() => setShowRules(false)} className="mt-4 w-full py-3 bg-green-700 hover:bg-green-600 text-white rounded-lg transition font-bold">알겠습니다!</button>
+          </div>
+        </div>
+      );
+      
       const SkillIcon = ({ iconName }) => {
         const Icon = Icons[iconName];
         return Icon ? <Icon /> : null;
@@ -458,6 +544,7 @@
           <div className="absolute inset-0 opacity-10 pointer-events-none" style={{backgroundImage: 'radial-gradient(circle, #ffffff 1px, transparent 1px)', backgroundSize: '20px 20px'}}></div>
 
           {showLeaderboard && <LeaderboardModal />}
+          {showRules && <RuleModal />}
 
           <div className="w-full max-w-5xl bg-green-900/90 backdrop-blur-sm sm:rounded-3xl shadow-2xl border-x-0 sm:border border-green-700 overflow-hidden flex flex-col lg:flex-row h-screen sm:h-auto sm:min-h-[650px]">
             
@@ -542,6 +629,7 @@
                   <div key={log.id} onClick={() => nullifyMode && !log.nullified && nullifySkill(log.id)} className={`p-2 rounded text-xs text-white ${log.nullified ? 'bg-gray-800 opacity-50' : log.skill.color} ${nullifyMode && !log.nullified ? 'cursor-pointer animate-shake ring-2 ring-white' : ''}`}>
                     <div className="flex justify-between"><strong>{log.user}</strong>{log.nullified && <span className="text-red-300">무효</span>}</div>
                     <div>{log.skill.name} <span className="opacity-75">→ {log.target}</span></div>
+                    {log.storedValue !== undefined && <div className="text-[9px] opacity-60 mt-1">🎲 결과: {log.storedValue}</div>}
                   </div>
                 ))}
               </div>
@@ -559,6 +647,7 @@
                 <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xs sm:max-w-none justify-center">
                   <button onClick={resetCampaign} className="px-8 py-4 bg-yellow-500 active:bg-yellow-400 text-black font-bold rounded-full shadow-lg active:scale-95 transition-transform">START GAME</button>
                   <button onClick={() => setShowLeaderboard(true)} className="px-6 py-4 bg-gray-700 active:bg-gray-600 text-white font-bold rounded-full shadow-lg active:scale-95">RANKING</button>
+                  <button onClick={() => setShowRules(true)} className="px-6 py-4 bg-green-700 active:bg-green-600 text-white font-bold rounded-full shadow-lg active:scale-95">📖 게임 설명</button>
                 </div>
               </div>
             )}
