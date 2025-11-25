@@ -22,6 +22,11 @@
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     @keyframes thinking { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
     
+    .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .animate-shake { animation: shake 0.2s ease-in-out infinite; }
+    .animate-blink { animation: blink 1s infinite; }
+    .animate-thinking { animation: thinking 1s infinite; }
+    
     /* Skill Effects */
     @keyframes floatUp { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-50px) scale(1.5); opacity: 0; } }
     @keyframes lightning { 0% { opacity: 0; transform: scale(1); } 10% { opacity: 1; transform: scale(1.2); filter: brightness(2); } 30% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0; transform: scale(1); } }
@@ -30,11 +35,6 @@
     @keyframes stamp { 0% { transform: scale(2); opacity: 0; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
     @keyframes roll { 0% { transform: rotate(0deg); } 100% { transform: rotate(720deg); } }
 
-    .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-    .animate-shake { animation: shake 0.2s ease-in-out infinite; }
-    .animate-blink { animation: blink 1s infinite; }
-    .animate-thinking { animation: thinking 1s infinite; }
-    
     .effect-float { animation: floatUp 1s forwards; }
     .effect-lightning { animation: lightning 0.6s ease-out forwards; }
     .effect-spin { animation: spin-in 0.8s ease-in-out forwards; }
@@ -110,6 +110,7 @@
       const [showAiSkills, setShowAiSkills] = useState(false);
       const [aiThinking, setAiThinking] = useState(false);
       const [activeEffects, setActiveEffects] = useState([]);
+      const [aiRetrievePending, setAiRetrievePending] = useState(false); // [NEW] AI 회수 대기 상태
       
       const [leaderboard, setLeaderboard] = useState([]);
       const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -148,15 +149,8 @@
 
       const submitScore = async () => {
         if (!db || !playerName.trim()) return;
-        
-        if (playerScore < 0 || playerScore > 50) {
-           alert("오류: 비정상적인 점수가 감지되었습니다.");
-           return;
-        }
-        if (playerName.length > 10) {
-           alert("이름은 10글자 이내여야 합니다.");
-           return;
-        }
+        if (playerScore < 0 || playerScore > 50) return alert("오류: 비정상 점수");
+        if (playerName.length > 10) return alert("이름은 10글자 이내");
 
         setIsSubmitting(true);
         try {
@@ -172,11 +166,7 @@
           setShowLeaderboard(true);
         } catch (error) {
           console.error("Error saving score:", error);
-          if (error.code === 'permission-denied') {
-             alert("보안 경고: 점수 저장 실패 (규칙 위반)");
-          } else {
-             alert("점수 저장 실패: " + error.message);
-          }
+          alert("점수 저장 실패: " + error.message);
           setIsSubmitting(false);
         }
       };
@@ -199,6 +189,7 @@
         setShowAiSkills(false);
         setAiThinking(false);
         setActiveEffects([]);
+        setAiRetrievePending(false);
       };
 
       const resetCampaign = () => {
@@ -239,19 +230,13 @@
 
       const aiSelectCard = (hand) => {
         if (!hand || hand.length === 0) return null;
-        
         const p = aiPattern;
         let candidates = [...hand];
-        
-        if (p.totalMoves < 5) {
-           return candidates[Math.floor(Math.random() * candidates.length)];
-        }
-
+        if (p.totalMoves < 5) return candidates[Math.floor(Math.random() * candidates.length)];
         if (hand.length <= 5 && p.lateHigh > p.lateLow) {
              const lowCards = hand.filter(c => c <= 4);
              if (lowCards.length > 0) candidates = lowCards;
         }
-        
         return candidates[Math.floor(Math.random() * candidates.length)];
       };
 
@@ -261,10 +246,8 @@
         if (isNaN(val)) return baseValue;
 
         switch(skillId) {
-          case 'opp-plus': case 'self-plus': 
-            return val + 1 > 10 ? 0 : val + 1; 
-          case 'opp-minus': case 'self-minus': 
-            return val - 1 < 0 ? 10 : val - 1; 
+          case 'opp-plus': case 'self-plus': return val + 1 > 10 ? 0 : val + 1; 
+          case 'opp-minus': case 'self-minus': return val - 1 < 0 ? 10 : val - 1; 
           case 'double': 
             let doubled = Math.floor(val) * 2;
             return doubled > 10 ? doubled % 10 : doubled;
@@ -280,6 +263,7 @@
         let aCard = originalAiCardRef.current;
 
         currentLog.filter(l => !l.nullified).forEach(log => {
+          if (log.skillId === 'retrieve') return; 
           if (log.target === 'player') pCard = applySkillValue(pCard, log.skillId, log.storedValue);
           else if (log.target === 'ai') aCard = applySkillValue(aCard, log.skillId, log.storedValue);
         });
@@ -293,7 +277,6 @@
         return p < a ? 'player-win' : 'ai-win';
       };
 
-      // [CRITICAL FIX] AI Recursion with explicit inventory passing
       const aiRespond = (currentLogState, currentAiSkills) => {
         if (currentAiSkills.length === 0) {
           setAiThinking(false);
@@ -332,33 +315,41 @@
           const randomSkill = currentAiSkills.find(s => s.id === 'random');
           if (randomSkill) {
             const rnd = Math.floor(Math.random() * 11);
-            const res = getWinner(pCard, rnd);
-            if (res === 'ai-win' || res === 'draw') {
-              bestSkill = randomSkill;
-              bestRandomVal = rnd;
-            }
+            bestSkill = randomSkill;
+            bestRandomVal = rnd;
           }
         }
 
+        // [CRITICAL FIX] 회수 로직 수정
         if (!bestSkill && currentResult === 'player-win') {
           const retrieveSkill = currentAiSkills.find(s => s.id === 'retrieve');
           if (retrieveSkill) {
-             const originalP = originalPlayerCardRef.current;
-             const originalA = originalAiCardRef.current;
+             const newLog = { 
+               id: Date.now() + Math.random(), 
+               user: 'AI', 
+               skill: retrieveSkill, 
+               skillId: 'retrieve', 
+               target: 'ai', 
+               nullified: false 
+             };
              
-             setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
-             setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
-             setPlayerCard(null); setAiCard(null);
-             originalPlayerCardRef.current = null; originalAiCardRef.current = null;
-             setTurnPhase('select');
-             setMessage('AI가 회수를 사용했습니다! 다시 선택하세요.');
-             setSkillLog([]);
-             
-             // Remove used skill
+             const nextLogs = [...currentLogState, newLog];
+             setSkillLog(nextLogs);
              setAiSkills(prev => prev.filter(s => s.uniqueId !== retrieveSkill.uniqueId));
              
              triggerEffect('retrieve', 'ai');
-             setAiThinking(false);
+             
+             // [IMPORTANT] 회수는 즉시 실행 안하고 플레이어에게 무력화 기회 줌
+             setAiRetrievePending(true);
+             setMessage('AI가 회수를 사용했습니다! (무력화 가능)');
+             setAiThinking(false); // 플레이어에게 턴 넘김
+             
+             // 1.5초 뒤에 자동 실행 (무력화 안되면)
+             setTimeout(() => {
+               // setAiRetrievePending 상태가 여전히 true이고, 로그가 무력화 안됐으면 실행
+               // 이 로직은 confirmTurn에서 처리하도록 유도하거나, 별도 타임아웃 처리 필요
+               // 여기서는 플레이어가 "결과 확인"을 누르거나 "무력화"를 쓰게끔 유도
+             }, 1500); 
              return;
           }
         }
@@ -368,7 +359,6 @@
           
           const prevValues = calculateCurrentValues(currentLogState);
           const beforeVal = target === 'player' ? prevValues.pCard : prevValues.aCard;
-          
           let afterVal;
           if (bestSkill.id === 'random') afterVal = bestRandomVal;
           else afterVal = applySkillValue(beforeVal, bestSkill.id, undefined);
@@ -392,15 +382,11 @@
           setPlayerCard(calculated.pCard);
           setAiCard(calculated.aCard);
           
-          // Update Global State
           setAiSkills(prev => prev.filter(s => s.uniqueId !== bestSkill.uniqueId));
-          
-          // Prepare local state for recursion
           const nextAiSkills = currentAiSkills.filter(s => s.uniqueId !== bestSkill.uniqueId);
 
           triggerEffect(bestSkill.id, target);
 
-          // Recursive call with UPDATED inventory
           setTimeout(() => aiRespond(nextLogs, nextAiSkills), 1000);
         } else {
           setAiThinking(false);
@@ -433,10 +419,7 @@
                  setSkillLog(newLogs);
                  
                  const nullifySkill = aiSkills[aiNullifyIndex];
-                 // Update Global State
                  setAiSkills(prev => prev.filter(s => s.uniqueId !== nullifySkill.uniqueId));
-                 
-                 // Prepare Local State
                  const nextAiSkills = aiSkills.filter(s => s.uniqueId !== nullifySkill.uniqueId);
 
                  const recalculated = calculateCurrentValues(newLogs);
@@ -450,12 +433,11 @@
             }
           }
         }
-      }, [skillLog, turnPhase, aiThinking]); // removed aiSkills to avoid loop, careful with stale closure here but handled in body
+      }, [skillLog, turnPhase, aiThinking]);
 
       const playCard = (card) => {
         if (gameState !== 'playing' || turnPhase !== 'select') return;
         learnPattern(card, playerHand.length);
-        
         originalPlayerCardRef.current = card;
         setPlayerCard(card);
         setPlayerHand(prev => prev.filter(c => c !== card));
@@ -469,6 +451,7 @@
         setMessage('AI가 생각 중...'); 
         setSkillLog([]);
         setAiThinking(true); 
+        setAiRetrievePending(false);
         
         setTimeout(() => aiRespond([], aiSkills), 800);
       };
@@ -497,13 +480,9 @@
         const beforeVal = target === 'player' ? pCard : aCard;
         let afterVal;
         
-        if (skill.id === 'retrieve') {
-          afterVal = null;
-        } else if (skill.id === 'random') {
-          afterVal = simulatedRandomVal;
-        } else {
-          afterVal = applySkillValue(beforeVal, skill.id, undefined);
-        }
+        if (skill.id === 'retrieve') { afterVal = null; } 
+        else if (skill.id === 'random') { afterVal = simulatedRandomVal; } 
+        else { afterVal = applySkillValue(beforeVal, skill.id, undefined); }
 
         const newLog = { 
           id: Date.now(), 
@@ -522,14 +501,11 @@
         
         if (skill.id !== 'retrieve') {
           const calculated = calculateCurrentValues(nextLogs);
-          setPlayerCard(calculated.pCard); 
-          setAiCard(calculated.aCard);
+          setPlayerCard(calculated.pCard); setAiCard(calculated.aCard);
         }
         
         setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex));
-
         triggerEffect(skill.id, target);
-        
         triggerAiReaction(nextLogs, aiSkills);
       };
 
@@ -551,12 +527,18 @@
 
         if (targetLog) triggerEffect('nullify', targetLog.target);
         
+        // 무력화 성공 시, 만약 AI 회수가 취소된거라면 pending 해제
+        if (targetLog && targetLog.skillId === 'retrieve' && targetLog.user === 'AI') {
+           setAiRetrievePending(false);
+        }
+
         triggerAiReaction(newLogs, aiSkills);
       };
 
       const confirmTurn = () => {
         if (aiThinking) return;
         
+        // [CRITICAL] 회수 스킬 처리 (가장 마지막 유효한 회수 스킬 우선)
         const activeRetrieve = [...skillLog].reverse().find(l => l.skillId === 'retrieve' && !l.nullified);
         
         if (activeRetrieve) {
@@ -565,21 +547,19 @@
           
           setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
           setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
-          setPlayerCard(null); 
-          setAiCard(null); 
-          originalPlayerCardRef.current = null; 
-          originalAiCardRef.current = null;
+          setPlayerCard(null); setAiCard(null); 
+          originalPlayerCardRef.current = null; originalAiCardRef.current = null;
           
           setTurnPhase('select'); 
           setMessage(`${activeRetrieve.user}의 회수로 턴이 리셋되었습니다.`); 
           setSkillLog([]);
           setActiveEffects([]);
+          setAiRetrievePending(false);
           return;
         }
 
         setTurnPhase('result');
         const winner = getWinner(playerCard, aiCard);
-        
         const isTenVsZero = (playerCard === 10 && aiCard === 0) || (playerCard === 0 && aiCard === 10);
 
         if (winner === 'player-win') {
@@ -596,11 +576,8 @@
         }
 
         if (isTenVsZero) {
-          if (winner === 'player-win') {
-            setPlayerSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
-          } else if (winner === 'ai-win') {
-            setAiSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
-          }
+          if (winner === 'player-win') setPlayerSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
+          else if (winner === 'ai-win') setAiSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
         } else {
           const diff = Math.abs(playerCard - aiCard);
           if (diff === 1 || winner === 'draw') {
@@ -611,11 +588,8 @@
 
         if (playerHand.length === 0) {
           setTimeout(() => {
-            if (round >= MAX_ROUNDS) {
-              setGameState('game-over');
-            } else {
-              setGameState('round-end');
-            }
+            if (round >= MAX_ROUNDS) setGameState('game-over');
+            else setGameState('round-end');
           }, 2000);
         } else {
           setTimeout(() => {
@@ -652,7 +626,6 @@
             {myEffects.map(e => {
               let Content = null;
               let animationClass = '';
-              
               if (e.skillId.includes('plus')) {
                 Content = <span className="text-4xl font-black text-green-400 drop-shadow-lg stroke-black">+1</span>;
                 animationClass = 'effect-float';
@@ -672,7 +645,6 @@
                 Content = <div className="text-8xl text-red-600 opacity-80">🚫</div>;
                 animationClass = 'effect-stamp';
               }
-
               return <div key={e.id} className={`absolute ${animationClass}`}>{Content}</div>;
             })}
           </div>
