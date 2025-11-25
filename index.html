@@ -5,13 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Zero Point: Ranking Battle</title>
   
-  <!-- React & Tailwind CSS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   
-  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
@@ -34,9 +32,6 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    // ==========================================
-    // [STEP 1] Firebase 설정
-    // ==========================================
     const firebaseConfig = {
       apiKey: "AIzaSyBYV5nAO4sswR9prt88trv2u1L_f_kCyaU",
       authDomain: "zero-9c4b4.firebaseapp.com",
@@ -244,70 +239,126 @@
         return p < a ? 'player-win' : 'ai-win';
       };
 
-      const aiUseSkill = (currentPCard, currentACard) => {
+      // [MAJOR UPGRADE] AI 스킬 사용 로직 - 다중 스킬 콤보 & 회수 사용
+      const aiUseSkill = (initialPCard, initialACard) => {
         if (aiSkills.length === 0) return;
         
-        if (originalPlayerCardRef.current === null) originalPlayerCardRef.current = currentPCard;
-        if (originalAiCardRef.current === null) originalAiCardRef.current = currentACard;
+        if (originalPlayerCardRef.current === null) originalPlayerCardRef.current = initialPCard;
+        if (originalAiCardRef.current === null) originalAiCardRef.current = initialACard;
 
-        const currentResult = getWinner(currentPCard, currentACard);
+        let currentPCard = initialPCard;
+        let currentACard = initialACard;
+        let currentResult = getWinner(currentPCard, currentACard);
         
+        // 이미 이기고 있다면 스킬 아낌
+        if (currentResult === 'ai-win') return;
+
+        let remainingSkills = [...aiSkills];
+        let newLogs = [...skillLog];
+        let usedIndices = [];
+
+        // 1단계: 이길 때까지 스킬 연속 사용 (nullify, retrieve, random 제외)
+        let improved = true;
+        while (improved && currentResult !== 'ai-win') {
+          improved = false;
+          
+          const usableSkills = remainingSkills
+            .map((skill, index) => ({ skill, index }))
+            .filter(({ skill, index }) => 
+              !usedIndices.includes(index) && 
+              !['nullify', 'retrieve', 'random'].includes(skill.id)
+            );
+
+          for (const { skill, index } of usableSkills) {
+            let tempP = currentPCard, tempA = currentACard;
+            
+            if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id, undefined);
+            else tempA = applySkillValue(tempA, skill.id, undefined);
+
+            const newResult = getWinner(tempP, tempA);
+            
+            // 상황이 개선되면 사용
+            const isBetter = (newResult === 'ai-win') || 
+                             (newResult === 'draw' && currentResult === 'player-win') ||
+                             (currentResult === 'player-win' && newResult === 'player-win' && 
+                              Math.abs(tempA - tempP) < Math.abs(currentACard - currentPCard));
+            
+            if (isBetter) {
+              const newLog = { 
+                id: Date.now() + Math.random(), 
+                user: 'AI', 
+                skill, 
+                skillId: skill.id, 
+                target: skill.id.startsWith('opp-') ? 'player' : 'ai', 
+                nullified: false,
+                storedValue: undefined
+              };
+              
+              newLogs.push(newLog);
+              usedIndices.push(index);
+              currentPCard = tempP;
+              currentACard = tempA;
+              currentResult = newResult;
+              improved = true;
+              break;
+            }
+          }
+        }
+
+        // 2단계: 여전히 지고 있다면 랜덤 스킬로 도박
         if (currentResult === 'player-win') {
-        } else if (currentResult === 'ai-win') {
-          return;
-        }
-
-        const usableSkills = aiSkills.map((skill, index) => ({ skill, index })).filter(({ skill }) => skill.id !== 'nullify' && skill.id !== 'retrieve');
-        let chosenSkillIndex = -1;
-        let chosenRandomVal = undefined;
-
-        for (const { skill, index } of usableSkills) {
-          let tempP = currentPCard, tempA = currentACard;
-          let simulatedRandomVal = undefined;
-          
-          if (skill.id === 'random') simulatedRandomVal = Math.floor(Math.random() * 11);
-
-          if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id, simulatedRandomVal);
-          else tempA = applySkillValue(tempA, skill.id, simulatedRandomVal);
-
-          const newResult = getWinner(tempP, tempA);
-          
-          if (newResult === 'ai-win' || (newResult === 'draw' && currentResult === 'player-win')) {
-            chosenSkillIndex = index;
-            chosenRandomVal = simulatedRandomVal;
-            break; 
-          }
-        }
-
-        if (chosenSkillIndex === -1 && currentResult === 'player-win') {
-          const randomIndex = aiSkills.findIndex(s => s.id === 'random');
-          if (randomIndex !== -1) {
-             chosenSkillIndex = randomIndex;
-             chosenRandomVal = Math.floor(Math.random() * 11);
-          }
-        }
-
-        if (chosenSkillIndex !== -1) {
-            const skill = aiSkills[chosenSkillIndex];
+          const randomIdx = remainingSkills.findIndex((s, i) => s.id === 'random' && !usedIndices.includes(i));
+          if (randomIdx !== -1) {
+            const randomVal = Math.floor(Math.random() * 11);
             const newLog = { 
               id: Date.now() + Math.random(), 
               user: 'AI', 
-              skill, 
-              skillId: skill.id, 
-              target: skill.id.startsWith('opp-') ? 'player' : 'ai', 
+              skill: remainingSkills[randomIdx], 
+              skillId: 'random', 
+              target: 'ai', 
               nullified: false,
-              storedValue: chosenRandomVal
+              storedValue: randomVal
             };
+            newLogs.push(newLog);
+            usedIndices.push(randomIdx);
+            currentACard = randomVal;
+            currentResult = getWinner(currentPCard, currentACard);
+          }
+        }
+
+        // 3단계: 여전히 지고 있고 개선 불가능하다면 회수 사용
+        if (currentResult === 'player-win') {
+          const retrieveIdx = remainingSkills.findIndex((s, i) => s.id === 'retrieve' && !usedIndices.includes(i));
+          if (retrieveIdx !== -1) {
+            // 회수 사용 - 턴 리셋
+            const originalP = originalPlayerCardRef.current;
+            const originalA = originalAiCardRef.current;
             
-            const updatedLogs = [...skillLog, newLog];
-            setSkillLog(updatedLogs);
-            
-            const { pCard, aCard } = calculateCurrentValues(updatedLogs);
-            setPlayerCard(pCard); setAiCard(aCard);
-            setAiSkills(prev => prev.filter((_, i) => i !== chosenSkillIndex));
+            setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
+            setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
+            setPlayerCard(null);
+            setAiCard(null);
+            originalPlayerCardRef.current = null;
+            originalAiCardRef.current = null;
+            setTurnPhase('select');
+            setMessage('AI가 회수를 사용했습니다! 다시 선택하세요.');
+            setSkillLog([]);
+            setAiSkills(prev => prev.filter((_, i) => i !== retrieveIdx));
+            return;
+          }
+        }
+
+        // 스킬 사용 결과 반영
+        if (usedIndices.length > 0) {
+          setSkillLog(newLogs);
+          const { pCard, aCard } = calculateCurrentValues(newLogs);
+          setPlayerCard(pCard);
+          setAiCard(aCard);
+          setAiSkills(prev => prev.filter((_, i) => !usedIndices.includes(i)));
         }
       };
 
+      // AI 무력화 로직
       useEffect(() => {
         const aiNullifyIndex = aiSkills.findIndex(s => s.id === 'nullify');
         if (turnPhase === 'skill' && aiNullifyIndex !== -1) {
@@ -404,7 +455,9 @@
         setTurnPhase('result');
         const winner = getWinner(playerCard, aiCard);
         let diff = Math.abs(playerCard - aiCard);
-        if ((playerCard===0 && aiCard===10) || (playerCard===10 && aiCard===0)) diff = 10;
+        
+        // 10 vs 0 체크
+        const isTenVsZero = (playerCard === 10 && aiCard === 0) || (playerCard === 0 && aiCard === 10);
 
         if (winner === 'player-win') {
           setPlayerScore(prev => prev + 1);
@@ -419,7 +472,16 @@
           setMessage(`무승부! (${playerCard} vs ${aiCard})`);
         }
 
-        if (diff === 1 || winner === 'draw') {
+        // [NEW] 스킬 보상 로직
+        if (isTenVsZero) {
+          // 10 vs 0: 승자에게 스킬 2장
+          if (winner === 'player-win') {
+            setPlayerSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
+          } else if (winner === 'ai-win') {
+            setAiSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
+          }
+        } else if (diff === 1 || winner === 'draw') {
+          // 1차이 또는 무승부: 양쪽 1장씩
           if (winner === 'player-win' || winner === 'draw') setPlayerSkills(prev => [...prev, getRandomSkill()]);
           if (winner === 'ai-win' || winner === 'draw') setAiSkills(prev => [...prev, getRandomSkill()]);
         }
@@ -447,7 +509,7 @@
         initGame();
       };
 
-      const Card = ({ number, isHidden, isSelected, onClick, disabled, isEnemy }) => (
+      const Card = ({ number, isHidden, isSelected, onClick, disabled }) => (
         <button onClick={onClick} disabled={disabled}
           className={`relative w-14 h-20 sm:w-16 sm:h-24 rounded-lg border-2 shadow-lg transition-all duration-100 transform flex flex-col items-center justify-center
             active:scale-95 touch-manipulation
@@ -468,7 +530,7 @@
             </div>
             <div className="space-y-2 mb-6 overflow-y-auto max-h-64 custom-scroll">
               {leaderboard.length === 0 ? (
-                <div className="text-gray-500 text-center py-4">기록이 없거나 불러오는 중...<br/>(Firestore 설정 확인 필요)</div>
+                <div className="text-gray-500 text-center py-4">기록이 없거나 불러오는 중...</div>
               ) : (
                 leaderboard.map((entry, i) => (
                   <div key={entry.id || i} className={`flex justify-between p-3 rounded ${i===0 ? 'bg-yellow-900/40 border border-yellow-600/30' : 'bg-gray-700'}`}>
@@ -499,9 +561,10 @@
                 <h4 className="text-lg font-bold text-yellow-400 mb-2">1. 기본 규칙</h4>
                 <ul className="list-disc list-inside space-y-1 ml-2">
                   <li><strong>0부터 10까지</strong>의 숫자 카드를 한 장씩 냅니다.</li>
-                  <li>상대보다 <strong>작은 숫자</strong>를 내면 승리합니다. (예: 2 vs 5 → 2 승리)</li>
-                  <li>단, <strong>10은 0을 이깁니다.</strong> (0 vs 10 → 10 승리)</li>
-                  <li>비기거나 1 차이로 승부가 나면, 양쪽 모두에게 <strong>스킬 카드</strong>가 지급됩니다.</li>
+                  <li>상대보다 <strong>작은 숫자</strong>를 내면 승리합니다.</li>
+                  <li>단, <strong>10은 0을 이깁니다.</strong></li>
+                  <li>비기거나 1 차이로 승부 시 스킬 1장 지급</li>
+                  <li><strong>10 vs 0</strong> 승리 시 스킬 <strong>2장</strong> 지급!</li>
                 </ul>
               </section>
 
@@ -515,7 +578,7 @@
                         <span className="text-white">{skill.name}</span>
                       </div>
                       <p className="text-xs text-gray-400">{skill.desc}</p>
-                      {skill.id === 'double' && <p className="text-[10px] text-yellow-200 mt-1">예: 6 → 12(2), 10 → 20(0), 5 → 10</p>}
+                      {skill.id === 'double' && <p className="text-[10px] text-yellow-200 mt-1">예: 6→12(2), 10→20(0), 5→10</p>}
                     </div>
                   ))}
                 </div>
@@ -544,7 +607,7 @@
               <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-b border-white/10 shrink-0">
                 <div className="flex flex-col">
                   <span className="text-red-300 font-bold text-sm">AI OPPONENT</span>
-                  <span className="text-xs text-gray-400">Lv. Normal</span>
+                  <span className="text-xs text-gray-400">Lv. Aggressive</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <button 
@@ -578,7 +641,7 @@
                 <div className="flex items-center gap-8">
                    <div className="relative">
                      <div className="absolute -top-6 w-full text-center text-xs text-gray-400">HAND: {aiHand.length}</div>
-                     {aiCard !== null ? <Card number={aiCard} isHidden={turnPhase === 'select' && !resultType} isEnemy={true} /> : <div className="w-14 h-20 sm:w-16 sm:h-24 border-2 border-dashed border-white/20 rounded-lg flex items-center justify-center text-white/20">Empty</div>}
+                     {aiCard !== null ? <Card number={aiCard} isHidden={turnPhase === 'select' && !resultType} /> : <div className="w-14 h-20 sm:w-16 sm:h-24 border-2 border-dashed border-white/20 rounded-lg flex items-center justify-center text-white/20">Empty</div>}
                    </div>
                 </div>
               </div>
@@ -608,7 +671,7 @@
               </div>
 
               <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-t border-white/10 shrink-0">
-                <div className="flex flex-col"><span className="text-blue-300 font-bold text-sm">PLAYER</span><span className="text-xs text-gray-400">10 beats 0</span></div>
+                <div className="flex flex-col"><span className="text-blue-300 font-bold text-sm">PLAYER</span><span className="text-xs text-gray-400">10 beats 0 → +2 Skills</span></div>
                 <div className="text-2xl font-bold text-white font-mono">{playerScore}</div>
               </div>
             </div>
@@ -634,12 +697,14 @@
                 <div className="bg-green-800/50 border border-green-500/30 p-6 rounded-xl max-w-md w-full mb-8 text-white text-sm space-y-2 backdrop-blur">
                   <p>★ <strong>5라운드</strong> 점수 경쟁</p>
                   <p>★ <strong>작은 숫자</strong> 승리 (단, 10은 0을 이김)</p>
-                  <p>★ 1점차/무승부 시 스킬 획득</p>
+                  <p>★ 1점차/무승부 시 스킬 1장, <strong>10 vs 0</strong> 승리 시 2장!</p>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xs sm:max-w-none justify-center">
+                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-sm justify-center">
                   <button onClick={resetCampaign} className="px-8 py-4 bg-yellow-500 active:bg-yellow-400 text-black font-bold rounded-full shadow-lg active:scale-95 transition-transform">START GAME</button>
                   <button onClick={() => setShowLeaderboard(true)} className="px-6 py-4 bg-gray-700 active:bg-gray-600 text-white font-bold rounded-full shadow-lg active:scale-95">RANKING</button>
-                  <button onClick={() => setShowRules(true)} className="px-6 py-4 bg-green-700 active:bg-green-600 text-white font-bold rounded-full shadow-lg active:scale-95">📖 게임 설명</button>
+                  <button onClick={() => setShowRules(true)} className="px-6 py-4 bg-green-700 active:bg-green-600 text-white font-bold rounded-full shadow-lg active:scale-95 flex items-center justify-center gap-2">
+                    <Icons.BookOpen /> 게임 설명
+                  </button>
                 </div>
               </div>
             )}
