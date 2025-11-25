@@ -20,9 +20,11 @@
     @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
     @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    @keyframes thinking { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
     .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
     .animate-shake { animation: shake 0.2s ease-in-out infinite; }
     .animate-blink { animation: blink 1s infinite; }
+    .animate-thinking { animation: thinking 1s infinite; }
     
     .custom-scroll::-webkit-scrollbar { width: 4px; }
     .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
@@ -90,6 +92,7 @@
       const [turnPhase, setTurnPhase] = useState('select');
       const [resultType, setResultType] = useState(null);
       const [showAiSkills, setShowAiSkills] = useState(false);
+      const [aiThinking, setAiThinking] = useState(false); // [NEW] AI 생각 중 상태
       
       const [leaderboard, setLeaderboard] = useState([]);
       const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -160,6 +163,7 @@
         setSkillLog([]);
         setResultType(null);
         setShowAiSkills(false);
+        setAiThinking(false);
       };
 
       const resetCampaign = () => {
@@ -239,10 +243,16 @@
         return p < a ? 'player-win' : 'ai-win';
       };
 
-      // [MAJOR UPGRADE] AI 스킬 사용 로직 - 다중 스킬 콤보 & 회수 사용
-      const aiUseSkill = (initialPCard, initialACard) => {
-        if (aiSkills.length === 0) return;
+      // [MAJOR FIX] AI 스킬 사용 - 엄격한 조건 & 단계별 실행
+      const aiUseSkill = async (initialPCard, initialACard) => {
+        if (aiSkills.length === 0) {
+          setAiThinking(false);
+          return;
+        }
         
+        setAiThinking(true);
+        setMessage('AI가 생각 중...');
+
         if (originalPlayerCardRef.current === null) originalPlayerCardRef.current = initialPCard;
         if (originalAiCardRef.current === null) originalAiCardRef.current = initialACard;
 
@@ -251,25 +261,32 @@
         let currentResult = getWinner(currentPCard, currentACard);
         
         // 이미 이기고 있다면 스킬 아낌
-        if (currentResult === 'ai-win') return;
+        if (currentResult === 'ai-win') {
+          setAiThinking(false);
+          setMessage('스킬을 사용하거나 결과를 확인하세요');
+          return;
+        }
 
-        let remainingSkills = [...aiSkills];
+        let remainingSkillIndices = aiSkills.map((_, i) => i);
         let newLogs = [...skillLog];
         let usedIndices = [];
+        let madeProgress = true;
 
-        // 1단계: 이길 때까지 스킬 연속 사용 (nullify, retrieve, random 제외)
-        let improved = true;
-        while (improved && currentResult !== 'ai-win') {
-          improved = false;
-          
-          const usableSkills = remainingSkills
-            .map((skill, index) => ({ skill, index }))
-            .filter(({ skill, index }) => 
-              !usedIndices.includes(index) && 
-              !['nullify', 'retrieve', 'random'].includes(skill.id)
-            );
+        // 단계별로 스킬 사용 (애니메이션 효과를 위해 순차 처리)
+        const useNextSkill = () => {
+          if (!madeProgress || currentResult === 'ai-win') {
+            // 더 이상 진행 불가 or 승리
+            finishAiTurn();
+            return;
+          }
 
-          for (const { skill, index } of usableSkills) {
+          madeProgress = false;
+          const availableSkills = remainingSkillIndices
+            .filter(i => !usedIndices.includes(i))
+            .map(i => ({ skill: aiSkills[i], index: i }))
+            .filter(({ skill }) => !['nullify', 'retrieve', 'random'].includes(skill.id));
+
+          for (const { skill, index } of availableSkills) {
             let tempP = currentPCard, tempA = currentACard;
             
             if (skill.id.startsWith('opp-')) tempP = applySkillValue(tempP, skill.id, undefined);
@@ -277,13 +294,11 @@
 
             const newResult = getWinner(tempP, tempA);
             
-            // 상황이 개선되면 사용
-            const isBetter = (newResult === 'ai-win') || 
-                             (newResult === 'draw' && currentResult === 'player-win') ||
-                             (currentResult === 'player-win' && newResult === 'player-win' && 
-                              Math.abs(tempA - tempP) < Math.abs(currentACard - currentPCard));
+            // [FIX] 오직 이기거나 무승부가 되는 경우에만 사용
+            const shouldUse = (newResult === 'ai-win') || 
+                              (newResult === 'draw' && currentResult === 'player-win');
             
-            if (isBetter) {
+            if (shouldUse) {
               const newLog = { 
                 id: Date.now() + Math.random(), 
                 user: 'AI', 
@@ -294,92 +309,129 @@
                 storedValue: undefined
               };
               
-              newLogs.push(newLog);
+              newLogs = [...newLogs, newLog];
               usedIndices.push(index);
               currentPCard = tempP;
               currentACard = tempA;
               currentResult = newResult;
-              improved = true;
-              break;
+              madeProgress = true;
+
+              // 상태 업데이트 (애니메이션)
+              setSkillLog([...newLogs]);
+              setPlayerCard(currentPCard);
+              setAiCard(currentACard);
+              setAiSkills(prev => prev.filter((_, i) => !usedIndices.includes(i)));
+
+              // 1초 후 다음 스킬 검토
+              setTimeout(useNextSkill, 1000);
+              return;
             }
           }
-        }
 
-        // 2단계: 여전히 지고 있다면 랜덤 스킬로 도박
-        if (currentResult === 'player-win') {
-          const randomIdx = remainingSkills.findIndex((s, i) => s.id === 'random' && !usedIndices.includes(i));
-          if (randomIdx !== -1) {
-            const randomVal = Math.floor(Math.random() * 11);
-            const newLog = { 
-              id: Date.now() + Math.random(), 
-              user: 'AI', 
-              skill: remainingSkills[randomIdx], 
-              skillId: 'random', 
-              target: 'ai', 
-              nullified: false,
-              storedValue: randomVal
-            };
-            newLogs.push(newLog);
-            usedIndices.push(randomIdx);
-            currentACard = randomVal;
-            currentResult = getWinner(currentPCard, currentACard);
-          }
-        }
-
-        // 3단계: 여전히 지고 있고 개선 불가능하다면 회수 사용
-        if (currentResult === 'player-win') {
-          const retrieveIdx = remainingSkills.findIndex((s, i) => s.id === 'retrieve' && !usedIndices.includes(i));
-          if (retrieveIdx !== -1) {
-            // 회수 사용 - 턴 리셋
-            const originalP = originalPlayerCardRef.current;
-            const originalA = originalAiCardRef.current;
+          // 일반 스킬로 개선 불가 → 랜덤 도박 시도
+          if (currentResult === 'player-win') {
+            const randomIdx = remainingSkillIndices.find(i => 
+              !usedIndices.includes(i) && aiSkills[i].id === 'random'
+            );
             
-            setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
-            setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
-            setPlayerCard(null);
-            setAiCard(null);
-            originalPlayerCardRef.current = null;
-            originalAiCardRef.current = null;
-            setTurnPhase('select');
-            setMessage('AI가 회수를 사용했습니다! 다시 선택하세요.');
-            setSkillLog([]);
-            setAiSkills(prev => prev.filter((_, i) => i !== retrieveIdx));
-            return;
-          }
-        }
+            if (randomIdx !== undefined) {
+              const randomVal = Math.floor(Math.random() * 11);
+              const newResult = getWinner(currentPCard, randomVal);
+              
+              // 랜덤 결과가 이기거나 무승부면 사용
+              if (newResult === 'ai-win' || newResult === 'draw') {
+                const newLog = { 
+                  id: Date.now() + Math.random(), 
+                  user: 'AI', 
+                  skill: aiSkills[randomIdx], 
+                  skillId: 'random', 
+                  target: 'ai', 
+                  nullified: false,
+                  storedValue: randomVal
+                };
+                
+                newLogs = [...newLogs, newLog];
+                usedIndices.push(randomIdx);
+                currentACard = randomVal;
+                currentResult = newResult;
 
-        // 스킬 사용 결과 반영
-        if (usedIndices.length > 0) {
-          setSkillLog(newLogs);
-          const { pCard, aCard } = calculateCurrentValues(newLogs);
-          setPlayerCard(pCard);
-          setAiCard(aCard);
-          setAiSkills(prev => prev.filter((_, i) => !usedIndices.includes(i)));
-        }
+                setSkillLog([...newLogs]);
+                setPlayerCard(currentPCard);
+                setAiCard(currentACard);
+                setAiSkills(prev => prev.filter((_, i) => !usedIndices.includes(i)));
+
+                setTimeout(finishAiTurn, 1000);
+                return;
+              }
+            }
+          }
+
+          // 여전히 지고 있고 개선 불가 → 회수 사용
+          if (currentResult === 'player-win') {
+            const retrieveIdx = remainingSkillIndices.find(i => 
+              !usedIndices.includes(i) && aiSkills[i].id === 'retrieve'
+            );
+            
+            if (retrieveIdx !== undefined) {
+              const originalP = originalPlayerCardRef.current;
+              const originalA = originalAiCardRef.current;
+              
+              setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
+              setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
+              setPlayerCard(null);
+              setAiCard(null);
+              originalPlayerCardRef.current = null;
+              originalAiCardRef.current = null;
+              setTurnPhase('select');
+              setMessage('AI가 회수를 사용했습니다! 다시 선택하세요.');
+              setSkillLog([]);
+              setAiSkills(prev => prev.filter((_, i) => i !== retrieveIdx));
+              setAiThinking(false);
+              return;
+            }
+          }
+
+          finishAiTurn();
+        };
+
+        const finishAiTurn = () => {
+          setAiThinking(false);
+          setMessage('스킬을 사용하거나 결과를 확인하세요');
+        };
+
+        // 1초 후 AI 스킬 사용 시작
+        setTimeout(useNextSkill, 1000);
       };
 
       // AI 무력화 로직
       useEffect(() => {
+        if (aiThinking) return; // AI 생각 중에는 무력화 로직 실행 안함
+        
         const aiNullifyIndex = aiSkills.findIndex(s => s.id === 'nullify');
         if (turnPhase === 'skill' && aiNullifyIndex !== -1) {
-          const lastLog = skillLog[skillLog.length - 1];
-          if (lastLog && lastLog.user === '플레이어' && !lastLog.nullified) {
+          const playerLogs = skillLog.filter(l => l.user === '플레이어' && !l.nullified);
+          const lastPlayerLog = playerLogs[playerLogs.length - 1];
+          
+          if (lastPlayerLog) {
             const { pCard, aCard } = calculateCurrentValues(skillLog);
             const currentWinner = getWinner(pCard, aCard);
             
             if (currentWinner === 'player-win') {
+              setAiThinking(true);
               const timer = setTimeout(() => {
-                 const newLogs = skillLog.map(l => l.id === lastLog.id ? { ...l, nullified: true } : l);
+                 const newLogs = skillLog.map(l => l.id === lastPlayerLog.id ? { ...l, nullified: true } : l);
                  setSkillLog(newLogs);
                  setAiSkills(prev => prev.filter((_, i) => i !== aiNullifyIndex));
                  const recalculated = calculateCurrentValues(newLogs);
-                 setPlayerCard(recalculated.pCard); setAiCard(recalculated.aCard);
+                 setPlayerCard(recalculated.pCard); 
+                 setAiCard(recalculated.aCard);
+                 setAiThinking(false);
               }, 1500);
               return () => clearTimeout(timer);
             }
           }
         }
-      }, [skillLog, turnPhase, aiSkills]);
+      }, [skillLog, turnPhase, aiSkills, aiThinking]);
 
       const playCard = (card) => {
         if (gameState !== 'playing' || turnPhase !== 'select') return;
@@ -394,12 +446,16 @@
         setAiCard(aiSelected);
         setAiHand(prev => prev.filter(c => c !== aiSelected));
         
-        setTurnPhase('skill'); setMessage('스킬 사용 단계'); setSkillLog([]);
-        setTimeout(() => aiUseSkill(card, aiSelected), 600);
+        setTurnPhase('skill'); 
+        setMessage('AI가 생각 중...'); 
+        setSkillLog([]);
+        
+        // AI 스킬 사용 시작
+        setTimeout(() => aiUseSkill(card, aiSelected), 800);
       };
 
       const useSkill = (skill, skillIndex) => {
-        if (turnPhase !== 'skill') return;
+        if (turnPhase !== 'skill' || aiThinking) return;
         if (originalPlayerCardRef.current === null) return;
 
         if (skill.id === 'nullify') { setNullifyMode(true); setMessage('무력화할 스킬 선택'); return; }
@@ -441,6 +497,7 @@
       };
 
       const nullifySkill = (logId) => {
+        if (aiThinking) return;
         const nullifyIndex = playerSkills.findIndex(s => s.id === 'nullify');
         if (nullifyIndex === -1) return;
         const newLogs = skillLog.map(l => l.id === logId ? { ...l, nullified: true } : l);
@@ -452,11 +509,11 @@
       };
 
       const confirmTurn = () => {
+        if (aiThinking) return; // AI 생각 중에는 결과 확인 불가
+        
         setTurnPhase('result');
         const winner = getWinner(playerCard, aiCard);
-        let diff = Math.abs(playerCard - aiCard);
         
-        // 10 vs 0 체크
         const isTenVsZero = (playerCard === 10 && aiCard === 0) || (playerCard === 0 && aiCard === 10);
 
         if (winner === 'player-win') {
@@ -472,18 +529,19 @@
           setMessage(`무승부! (${playerCard} vs ${aiCard})`);
         }
 
-        // [NEW] 스킬 보상 로직
+        // 스킬 보상 로직
         if (isTenVsZero) {
-          // 10 vs 0: 승자에게 스킬 2장
           if (winner === 'player-win') {
             setPlayerSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
           } else if (winner === 'ai-win') {
             setAiSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
           }
-        } else if (diff === 1 || winner === 'draw') {
-          // 1차이 또는 무승부: 양쪽 1장씩
-          if (winner === 'player-win' || winner === 'draw') setPlayerSkills(prev => [...prev, getRandomSkill()]);
-          if (winner === 'ai-win' || winner === 'draw') setAiSkills(prev => [...prev, getRandomSkill()]);
+        } else {
+          const diff = Math.abs(playerCard - aiCard);
+          if (diff === 1 || winner === 'draw') {
+            if (winner === 'player-win' || winner === 'draw') setPlayerSkills(prev => [...prev, getRandomSkill()]);
+            if (winner === 'ai-win' || winner === 'draw') setAiSkills(prev => [...prev, getRandomSkill()]);
+          }
         }
 
         if (playerHand.length === 0) {
@@ -606,7 +664,10 @@
             <div className="flex-1 flex flex-col relative overflow-y-auto">
               <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-b border-white/10 shrink-0">
                 <div className="flex flex-col">
-                  <span className="text-red-300 font-bold text-sm">AI OPPONENT</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-red-300 font-bold text-sm">AI OPPONENT</span>
+                    {aiThinking && <span className="text-yellow-400 text-xs animate-thinking">🤔 생각 중...</span>}
+                  </div>
                   <span className="text-xs text-gray-400">Lv. Aggressive</span>
                 </div>
                 <div className="flex items-center gap-3">
@@ -649,7 +710,18 @@
               <div className={`py-2 text-center transition-colors duration-300 shrink-0 ${resultType === 'win' ? 'bg-blue-600/50' : resultType === 'lose' ? 'bg-red-600/50' : 'bg-black/20'}`}>
                 <h2 className="text-yellow-400 font-bold text-xs uppercase tracking-widest mb-1">Round {round} / {MAX_ROUNDS}</h2>
                 <div className="text-lg sm:text-xl text-white font-bold drop-shadow-md animate-pop px-2">{message}</div>
-                {turnPhase === 'skill' && <button onClick={confirmTurn} className="mt-2 px-6 py-2 bg-yellow-500 active:bg-yellow-600 text-black font-bold rounded-full text-sm shadow-lg active:scale-95 transition-transform">결과 확인 (Turn End)</button>}
+                {turnPhase === 'skill' && (
+                  <button 
+                    onClick={confirmTurn} 
+                    disabled={aiThinking}
+                    className={`mt-2 px-6 py-2 font-bold rounded-full text-sm shadow-lg transition-all
+                      ${aiThinking 
+                        ? 'bg-gray-500 text-gray-300 cursor-not-allowed' 
+                        : 'bg-yellow-500 active:bg-yellow-600 text-black active:scale-95'}`}
+                  >
+                    {aiThinking ? 'AI 생각 중...' : '결과 확인 (Turn End)'}
+                  </button>
+                )}
               </div>
 
               <div className="flex-1 flex flex-col items-center justify-start p-2 sm:p-4 gap-3 bg-black/10">
@@ -657,8 +729,8 @@
                  
                  <div className="flex flex-wrap justify-center gap-2 min-h-[32px]">
                     {playerSkills.map((skill, i) => (
-                      <button key={i} onClick={() => useSkill(skill, i)} disabled={turnPhase !== 'skill'} 
-                        className={`px-3 py-2 sm:px-2 sm:py-1 ${skill.color} text-white rounded text-xs flex items-center gap-1 active:scale-95 touch-manipulation shadow hover:brightness-110`}>
+                      <button key={i} onClick={() => useSkill(skill, i)} disabled={turnPhase !== 'skill' || aiThinking} 
+                        className={`px-3 py-2 sm:px-2 sm:py-1 ${skill.color} text-white rounded text-xs flex items-center gap-1 active:scale-95 touch-manipulation shadow hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed`}>
                         <SkillIcon iconName={skill.icon} />
                         <span className="inline">{skill.name}</span>
                       </button>
@@ -681,7 +753,7 @@
               <div className="flex-1 overflow-y-auto custom-scroll space-y-2 pr-1">
                 {skillLog.length === 0 && <div className="text-gray-500 text-xs text-center py-2">스킬 기록 없음</div>}
                 {skillLog.map((log) => (
-                  <div key={log.id} onClick={() => nullifyMode && !log.nullified && nullifySkill(log.id)} className={`p-2 rounded text-xs text-white ${log.nullified ? 'bg-gray-800 opacity-50' : log.skill.color} ${nullifyMode && !log.nullified ? 'cursor-pointer animate-shake ring-2 ring-white' : ''}`}>
+                  <div key={log.id} onClick={() => nullifyMode && !log.nullified && !aiThinking && nullifySkill(log.id)} className={`p-2 rounded text-xs text-white ${log.nullified ? 'bg-gray-800 opacity-50' : log.skill.color} ${nullifyMode && !log.nullified && !aiThinking ? 'cursor-pointer animate-shake ring-2 ring-white' : ''}`}>
                     <div className="flex justify-between"><strong>{log.user}</strong>{log.nullified && <span className="text-red-300">무효</span>}</div>
                     <div>{log.skill.name} <span className="opacity-75">→ {log.target}</span></div>
                     {log.storedValue !== undefined && <div className="text-[9px] opacity-60 mt-1">🎲 결과: {log.storedValue}</div>}
