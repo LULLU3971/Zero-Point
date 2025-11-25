@@ -28,6 +28,7 @@
     @keyframes spin-in { 0% { transform: rotate(0deg) scale(0); opacity: 0; } 50% { transform: rotate(180deg) scale(1.5); opacity: 1; } 100% { transform: rotate(360deg) scale(0); opacity: 0; } }
     @keyframes shake-hard { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(-5px, 5px) rotate(-5deg); } 75% { transform: translate(-5px, -5px) rotate(-5deg); } }
     @keyframes stamp { 0% { transform: scale(2); opacity: 0; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
+    @keyframes roll { 0% { transform: rotate(0deg); } 100% { transform: rotate(720deg); } }
 
     .animate-pop { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
     .animate-shake { animation: shake 0.2s ease-in-out infinite; }
@@ -37,8 +38,8 @@
     .effect-float { animation: floatUp 1s forwards; }
     .effect-lightning { animation: lightning 0.6s ease-out forwards; }
     .effect-spin { animation: spin-in 0.8s ease-in-out forwards; }
-    .effect-shake-hard { animation: shake-hard 0.5s ease-in-out infinite; }
     .effect-stamp { animation: stamp 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    .effect-roll { animation: roll 0.8s ease-in-out forwards; }
 
     .custom-scroll::-webkit-scrollbar { width: 4px; }
     .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
@@ -218,12 +219,10 @@
         });
       };
 
-      // [BUG FIX] AI 카드 선택 로직: 실제 손패에 있는 카드만 선택
       const aiSelectCard = (hand) => {
         if (!hand || hand.length === 0) return null;
         
         const p = aiPattern;
-        // 유효한 후보군 필터링
         let candidates = [...hand];
         
         if (p.totalMoves < 5) {
@@ -331,9 +330,8 @@
              const originalP = originalPlayerCardRef.current;
              const originalA = originalAiCardRef.current;
              
-             // [BUG FIX] 회수 시 카드 복구 로직 강화
              setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
-             setAiHand(prev => [...prev, originalA].sort((a,b) => a-b)); // 복구
+             setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
              
              setPlayerCard(null); setAiCard(null);
              originalPlayerCardRef.current = null; originalAiCardRef.current = null;
@@ -349,6 +347,14 @@
 
         if (bestSkillIndex !== -1) {
           const target = bestSkill.id.startsWith('opp-') ? 'player' : 'ai';
+          
+          const prevValues = calculateCurrentValues(currentLogState);
+          const beforeVal = target === 'player' ? prevValues.pCard : prevValues.aCard;
+          
+          let afterVal;
+          if (bestSkill.id === 'random') afterVal = bestRandomVal;
+          else afterVal = applySkillValue(beforeVal, bestSkill.id, undefined);
+
           const newLog = { 
             id: Date.now() + Math.random(), 
             user: 'AI', 
@@ -356,7 +362,9 @@
             skillId: bestSkill.id, 
             target, 
             nullified: false,
-            storedValue: bestRandomVal
+            storedValue: bestRandomVal,
+            beforeVal, 
+            afterVal
           };
           
           const nextLogs = [...currentLogState, newLog];
@@ -421,7 +429,6 @@
         setPlayerCard(card);
         setPlayerHand(prev => prev.filter(c => c !== card));
         
-        // [BUG FIX] AI 손패에서 즉시 제거
         const aiSelected = aiSelectCard(aiHand);
         originalAiCardRef.current = aiSelected;
         setAiCard(aiSelected);
@@ -430,6 +437,7 @@
         setTurnPhase('skill'); 
         setMessage('AI가 생각 중...'); 
         setSkillLog([]);
+        setAiThinking(true); // [CRITICAL FIX] Lock immediately
         
         setTimeout(() => aiRespond([]), 800);
       };
@@ -438,7 +446,15 @@
         if (turnPhase !== 'skill' || aiThinking) return;
         if (originalPlayerCardRef.current === null) return;
 
-        if (skill.id === 'nullify') { setNullifyMode(true); setMessage('무력화할 스킬 선택'); return; }
+        // [CRITICAL FIX] Lock immediately
+        setAiThinking(true); 
+
+        if (skill.id === 'nullify') { 
+            setNullifyMode(true); 
+            setMessage('무력화할 스킬 선택'); 
+            setAiThinking(false); // Unlock for selection
+            return; 
+        }
         if (skill.id === 'retrieve') {
           const originalP = originalPlayerCardRef.current;
           const originalA = originalAiCardRef.current;
@@ -447,11 +463,11 @@
              setPlayerCard(null); setAiCard(null);
              originalPlayerCardRef.current = null; originalAiCardRef.current = null;
              
-             // [BUG FIX] AI 손패 복구
              setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
              setTurnPhase('select'); setMessage('카드를 회수했습니다.'); setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex)); setSkillLog([]); 
              
              triggerEffect('retrieve', 'player');
+             setAiThinking(false); // Unlock
              return;
           }
         }
@@ -462,6 +478,13 @@
         }
 
         const target = skill.id.startsWith('opp-') ? 'ai' : 'player';
+        
+        const { pCard, aCard } = calculateCurrentValues(skillLog);
+        const beforeVal = target === 'player' ? pCard : aCard;
+        let afterVal;
+        if (skill.id === 'random') afterVal = simulatedRandomVal;
+        else afterVal = applySkillValue(beforeVal, skill.id, undefined);
+
         const newLog = { 
           id: Date.now(), 
           user: '플레이어', 
@@ -469,24 +492,30 @@
           skillId: skill.id, 
           target, 
           nullified: false,
-          storedValue: simulatedRandomVal
+          storedValue: simulatedRandomVal,
+          beforeVal, 
+          afterVal   
         };
         
         const nextLogs = [...skillLog, newLog];
         setSkillLog(nextLogs);
-        const { pCard, aCard } = calculateCurrentValues(nextLogs);
-        setPlayerCard(pCard); setAiCard(aCard);
+        const calculated = calculateCurrentValues(nextLogs);
+        setPlayerCard(calculated.pCard); setAiCard(calculated.aCard);
         setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex));
 
         triggerEffect(skill.id, target);
         
+        // Hand over to AI Logic
         triggerAiReaction(nextLogs);
       };
 
       const nullifySkill = (logId) => {
         if (aiThinking) return;
+        // [CRITICAL FIX] Lock immediately
+        setAiThinking(true);
+
         const nullifyIndex = playerSkills.findIndex(s => s.id === 'nullify');
-        if (nullifyIndex === -1) return;
+        if (nullifyIndex === -1) { setAiThinking(false); return; }
         
         const targetLog = skillLog.find(l => l.id === logId);
         
@@ -591,8 +620,8 @@
                 Content = <div className="flex flex-col items-center"><span className="text-6xl">⚡</span><span className="text-4xl font-black text-yellow-300">x2</span></div>;
                 animationClass = 'effect-lightning';
               } else if (e.skillId === 'random') {
-                Content = <div className="text-5xl font-bold text-purple-400">???</div>;
-                animationClass = 'effect-shake-hard';
+                Content = <div className="text-6xl font-bold text-purple-400">🎲</div>;
+                animationClass = 'effect-roll';
               } else if (e.skillId === 'retrieve') {
                 Content = <div className="text-6xl text-blue-500">🌀</div>;
                 animationClass = 'effect-spin';
