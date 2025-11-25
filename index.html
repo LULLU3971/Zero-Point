@@ -38,6 +38,7 @@
     .effect-float { animation: floatUp 1s forwards; }
     .effect-lightning { animation: lightning 0.6s ease-out forwards; }
     .effect-spin { animation: spin-in 0.8s ease-in-out forwards; }
+    .effect-shake-hard { animation: shake-hard 0.5s ease-in-out infinite; }
     .effect-stamp { animation: stamp 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     .effect-roll { animation: roll 0.8s ease-in-out forwards; }
 
@@ -129,7 +130,10 @@
         { id: 'nullify', name: '무력화', icon: 'Ban', desc: '이미 사용된 스킬 효과를 1개 취소합니다.', color: 'bg-gray-700' }
       ];
 
-      const getRandomSkill = () => skillTypes[Math.floor(Math.random() * skillTypes.length)];
+      const getRandomSkill = () => {
+        const skill = skillTypes[Math.floor(Math.random() * skillTypes.length)];
+        return { ...skill, uniqueId: Date.now() + Math.random() }; // [FIX] 고유 ID 부여
+      };
 
       const fetchLeaderboard = async () => {
         if (!db) return;
@@ -275,6 +279,7 @@
         return p < a ? 'player-win' : 'ai-win';
       };
 
+      // [CRITICAL FIX] AI Skill Index Logic
       const aiRespond = (currentLogState) => {
         if (aiSkills.length === 0) {
           setAiThinking(false);
@@ -295,7 +300,8 @@
         let bestSkill = null;
         let bestRandomVal = undefined;
 
-        const combatSkills = aiSkills.map((s, i) => ({...s, idx: i})).filter(s => !['nullify', 'retrieve', 'random'].includes(s.id));
+        // [FIX] Use index from current aiSkills array correctly
+        const combatSkills = aiSkills.map((s, i) => ({...s, realIndex: i})).filter(s => !['nullify', 'retrieve', 'random'].includes(s.id));
         
         for (const s of combatSkills) {
           let tempP = pCard;
@@ -305,7 +311,7 @@
           
           const res = getWinner(tempP, tempA);
           if (res === 'ai-win' || (res === 'draw' && currentResult === 'player-win')) {
-            bestSkillIndex = s.idx;
+            bestSkillIndex = s.realIndex; // Use correct index
             bestSkill = s;
             break;
           }
@@ -437,7 +443,7 @@
         setTurnPhase('skill'); 
         setMessage('AI가 생각 중...'); 
         setSkillLog([]);
-        setAiThinking(true); // [CRITICAL FIX] Lock immediately
+        setAiThinking(true); 
         
         setTimeout(() => aiRespond([]), 800);
       };
@@ -446,13 +452,12 @@
         if (turnPhase !== 'skill' || aiThinking) return;
         if (originalPlayerCardRef.current === null) return;
 
-        // [CRITICAL FIX] Lock immediately
         setAiThinking(true); 
 
         if (skill.id === 'nullify') { 
             setNullifyMode(true); 
             setMessage('무력화할 스킬 선택'); 
-            setAiThinking(false); // Unlock for selection
+            setAiThinking(false); 
             return; 
         }
         if (skill.id === 'retrieve') {
@@ -467,7 +472,7 @@
              setTurnPhase('select'); setMessage('카드를 회수했습니다.'); setPlayerSkills(prev => prev.filter((_, i) => i !== skillIndex)); setSkillLog([]); 
              
              triggerEffect('retrieve', 'player');
-             setAiThinking(false); // Unlock
+             setAiThinking(false); 
              return;
           }
         }
@@ -505,13 +510,11 @@
 
         triggerEffect(skill.id, target);
         
-        // Hand over to AI Logic
         triggerAiReaction(nextLogs);
       };
 
       const nullifySkill = (logId) => {
         if (aiThinking) return;
-        // [CRITICAL FIX] Lock immediately
         setAiThinking(true);
 
         const nullifyIndex = playerSkills.findIndex(s => s.id === 'nullify');
@@ -620,7 +623,7 @@
                 Content = <div className="flex flex-col items-center"><span className="text-6xl">⚡</span><span className="text-4xl font-black text-yellow-300">x2</span></div>;
                 animationClass = 'effect-lightning';
               } else if (e.skillId === 'random') {
-                Content = <div className="text-6xl font-bold text-purple-400">🎲</div>;
+                Content = <div className="text-5xl font-bold text-purple-400">🎲</div>;
                 animationClass = 'effect-roll';
               } else if (e.skillId === 'retrieve') {
                 Content = <div className="text-6xl text-blue-500">🌀</div>;
@@ -813,13 +816,20 @@
                 {skillLog.length === 0 && <div className="text-gray-500 text-xs text-center py-2">스킬 기록 없음</div>}
                 {skillLog.map((log) => (
                   <div key={log.id} onClick={() => nullifyMode && !log.nullified && !aiThinking && nullifySkill(log.id)} className={`p-2 rounded text-xs text-white ${log.nullified ? 'bg-gray-800 opacity-50' : log.skill.color} ${nullifyMode && !log.nullified && !aiThinking ? 'cursor-pointer animate-shake ring-2 ring-white' : ''}`}>
-                    <div className="flex justify-between"><strong>{log.user}</strong>{log.nullified && <span className="text-red-300">무효</span>}</div>
-                    <div>{log.skill.name} <span className="opacity-75">→ {log.target}</span></div>
-                    {log.storedValue !== undefined && <div className="text-[9px] opacity-60 mt-1">🎲 결과: {log.storedValue}</div>}
+                    <div className="flex justify-between"><strong>{log.user}</strong>{log.nullified && <span className="text-red-300 line-through">무효됨</span>}</div>
+                    <div className="flex items-center gap-1">
+                      <span>{log.skill.name}</span>
+                      <span className="opacity-75 text-[10px]">→ {log.target === 'player' ? '나' : '상대'}</span>
+                    </div>
+                    {!log.nullified && log.beforeVal !== undefined && (
+                      <div className="text-[10px] font-mono mt-1 bg-black/20 px-1 rounded inline-block">
+                        {log.beforeVal} → <span className="font-bold text-yellow-200">{log.afterVal}</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-              {nullifyMode && <button onClick={() => setNullifyMode(false)} className="mt-2 w-full py-3 bg-gray-600 text-white text-xs rounded-lg active:scale-95">취소</button>}
+              {nullifyMode && <button onClick={() => { setNullifyMode(false); setAiThinking(false); }} className="mt-2 w-full py-3 bg-gray-600 text-white text-xs rounded-lg active:scale-95">취소</button>}
             </div>
 
             {gameState === 'start' && (
