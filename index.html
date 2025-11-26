@@ -209,6 +209,7 @@
         setPlayerScore(0);
         setAiScore(0);
         setPlayerSkills([]);
+        setAiSkills([]);
         updateAiSkills([]); 
         initGame();
         grantRoundSkills(1);
@@ -311,7 +312,6 @@
 
         const combatSkills = currentAiSkills.filter(s => !['nullify', 'retrieve', 'random'].includes(s.id));
         
-        // 1. 일반 스킬 탐색
         for (const s of combatSkills) {
           let tempP = pCard;
           let tempA = aCard;
@@ -325,21 +325,14 @@
           }
         }
 
-        // 2. 랜덤 스킬 도박 (확률 계산)
         if (!bestSkill && currentResult === 'player-win') {
           const randomSkill = currentAiSkills.find(s => s.id === 'random');
           if (randomSkill) {
-            // 확률 계산: 0~10 중 몇 개가 이기는지 확인
-            let winCount = 0;
-            for(let i=0; i<=10; i++) {
-                if (getWinner(pCard, i) === 'ai-win') winCount++;
-            }
-            const winRate = (winCount / 11) * 100;
-            
-            // 지고 있을 땐 30%만 넘어도 시도, 비길 땐 50% 넘어야 시도
-            if (winRate >= 30) { 
-                bestSkill = randomSkill;
-                bestRandomVal = Math.floor(Math.random() * 11); // 진짜 랜덤! (미리보기 아님)
+            const rnd = Math.floor(Math.random() * 11);
+            const res = getWinner(pCard, rnd);
+            if (res === 'ai-win' || res === 'draw') {
+              bestSkill = randomSkill;
+              bestRandomVal = rnd;
             }
           }
         }
@@ -347,24 +340,25 @@
         if (!bestSkill && currentResult === 'player-win') {
           const retrieveSkill = currentAiSkills.find(s => s.id === 'retrieve');
           if (retrieveSkill) {
-             const originalP = originalPlayerCardRef.current;
-             const originalA = originalAiCardRef.current;
+             const newLog = { 
+               id: Date.now() + Math.random(), 
+               user: 'AI', 
+               skill: retrieveSkill, 
+               skillId: 'retrieve', 
+               target: 'ai', 
+               nullified: false 
+             };
              
-             setPlayerHand(prev => [...prev, originalP].sort((a,b) => a-b));
-             setAiHand(prev => [...prev, originalA].sort((a,b) => a-b));
-             setPlayerCard(null); setAiCard(null);
-             originalPlayerCardRef.current = null; originalAiCardRef.current = null;
-             setTurnPhase('select');
-             setMessage('AI가 회수를 사용했습니다! 다시 선택하세요.');
-             setSkillLog([]);
+             const nextLogs = [...currentLogState, newLog];
+             setSkillLog(nextLogs);
              
-             setAiSkills(prev => prev.filter(s => s.uniqueId !== retrieveSkill.uniqueId));
+             const nextSkills = currentAiSkills.filter(s => s.uniqueId !== retrieveSkill.uniqueId);
+             updateAiSkills(nextSkills);
              
              triggerEffect('retrieve', 'ai');
-             
-             setAiRetrievePending(true);
              setMessage('AI가 회수를 사용했습니다! (무력화 가능)');
-             setAiThinking(false); 
+             setAiRetrievePending(true);
+             setAiThinking(false);
              return;
           }
         }
@@ -386,7 +380,7 @@
             skillId: bestSkill.id, 
             target, 
             nullified: false,
-            storedValue: bestRandomVal, // 확정된 랜덤값 저장
+            storedValue: bestRandomVal,
             beforeVal, 
             afterVal
           };
@@ -398,8 +392,8 @@
           setPlayerCard(calculated.pCard);
           setAiCard(calculated.aCard);
           
-          setAiSkills(prev => prev.filter(s => s.uniqueId !== bestSkill.uniqueId));
-          const nextAiSkills = currentAiSkills.filter(s => s.uniqueId !== bestSkill.uniqueId);
+          const nextSkills = currentAiSkills.filter(s => s.uniqueId !== bestSkill.uniqueId);
+          updateAiSkills(nextSkills);
 
           triggerEffect(bestSkill.id, target);
 
@@ -589,6 +583,7 @@
           setMessage(`무승부! (${playerCard} vs ${aiCard})`);
         }
 
+        // [FIX] 스킬 지급 로직 수정 (중복 지급 방지 및 10 vs 0 우선 처리)
         if (isTenVsZero) {
           if (winner === 'player-win') setPlayerSkills(prev => [...prev, getRandomSkill(), getRandomSkill()]);
           else if (winner === 'ai-win') updateAiSkills([...aiSkillsRef.current, getRandomSkill(), getRandomSkill()]);
