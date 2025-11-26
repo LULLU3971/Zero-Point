@@ -25,7 +25,6 @@
     @keyframes floatUp { 0% { transform: translateY(0) scale(1); opacity: 1; } 100% { transform: translateY(-50px) scale(1.5); opacity: 0; } }
     @keyframes lightning { 0% { opacity: 0; transform: scale(1); } 10% { opacity: 1; transform: scale(1.2); filter: brightness(2); } 30% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0; transform: scale(1); } }
     @keyframes spin-in { 0% { transform: rotate(0deg) scale(0); opacity: 0; } 50% { transform: rotate(180deg) scale(1.5); opacity: 1; } 100% { transform: rotate(360deg) scale(0); opacity: 0; } }
-    @keyframes shake-hard { 0%, 100% { transform: translate(0, 0) rotate(0deg); } 25% { transform: translate(-5px, 5px) rotate(-5deg); } 75% { transform: translate(-5px, -5px) rotate(-5deg); } }
     @keyframes stamp { 0% { transform: scale(2); opacity: 0; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
     @keyframes roll { 0% { transform: rotate(0deg); } 100% { transform: rotate(720deg); } }
 
@@ -39,7 +38,6 @@
     .effect-spin { animation: spin-in 0.8s ease-in-out forwards; }
     .effect-stamp { animation: stamp 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     .effect-roll { animation: roll 0.8s ease-in-out forwards; }
-    .effect-shake-hard { animation: shake-hard 0.5s ease-in-out infinite; }
 
     .custom-scroll::-webkit-scrollbar { width: 4px; }
     .custom-scroll::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
@@ -49,7 +47,7 @@
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const APP_VERSION = "v1.4.1 (Hidden)";
+    const APP_VERSION = "v1.7.0 (Tabbed Rank)";
     const MAX_ROUNDS = 5;
     
     const firebaseConfig = {
@@ -71,24 +69,19 @@
     } catch (e) { console.error("Firebase Init Error", e); }
 
     const SKILL_TYPES = [
-      { id: 'retrieve', name: '회수', icon: 'RotateCcw', desc: '방금 낸 카드를 손패로 회수합니다.', color: 'bg-blue-600' },
-      { id: 'opp-plus', name: '상대+1', icon: 'Plus', desc: '상대 카드 +1 (10→0)', color: 'bg-red-600' },
-      { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드 -1 (0→10)', color: 'bg-red-500' },
-      { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드 +1 (10→0)', color: 'bg-green-600' },
-      { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드 -1 (0→10)', color: 'bg-green-500' },
-      { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 x2 (10 초과시 일의 자리)', color: 'bg-yellow-600' },
-      { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드 0~10 랜덤 변경', color: 'bg-purple-600' },
-      { id: 'nullify', name: '무력화', icon: 'Ban', desc: '스킬 효과 취소', color: 'bg-gray-700' }
+      { id: 'retrieve', name: '회수', icon: 'RotateCcw', desc: '방금 낸 카드를 손패로 회수합니다.', color: 'bg-blue-600', weight: 1 },
+      { id: 'opp-plus', name: '상대+1', icon: 'Plus', desc: '상대 카드 +1 (10→0)', color: 'bg-red-600', weight: 2 },
+      { id: 'opp-minus', name: '상대-1', icon: 'Minus', desc: '상대 카드 -1 (0→10)', color: 'bg-red-500', weight: 2 },
+      { id: 'self-plus', name: '본인+1', icon: 'Plus', desc: '본인 카드 +1 (10→0)', color: 'bg-green-600', weight: 2 },
+      { id: 'self-minus', name: '본인-1', icon: 'Minus', desc: '본인 카드 -1 (0→10)', color: 'bg-green-500', weight: 2 },
+      { id: 'double', name: '2배', icon: 'Zap', desc: '본인 카드 x2 (10 초과시 일의 자리)', color: 'bg-yellow-600', weight: 3 },
+      { id: 'random', name: '랜덤', icon: 'Shuffle', desc: '본인 카드 0~10 랜덤 변경', color: 'bg-purple-600', weight: 3 },
+      { id: 'nullify', name: '무력화', icon: 'Ban', desc: '스킬 효과 취소', color: 'bg-gray-700', weight: 4 }
     ];
 
-    const createSkill = (typeId) => {
-      const type = SKILL_TYPES.find(s => s.id === typeId) || SKILL_TYPES[0];
-      return { ...type, uniqueId: Date.now() + Math.random() };
-    };
-
     const getRandomSkill = () => {
-      const type = SKILL_TYPES[Math.floor(Math.random() * SKILL_TYPES.length)];
-      return { ...type, uniqueId: Date.now() + Math.random() };
+      const skill = SKILL_TYPES[Math.floor(Math.random() * SKILL_TYPES.length)];
+      return { ...skill, uniqueId: Date.now() + Math.random() };
     };
 
     const Icons = {
@@ -127,25 +120,6 @@
       );
     };
 
-    const EffectLayer = ({ activeEffects, target }) => {
-      const myEffects = activeEffects.filter(e => e.target === target);
-      return (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-50">
-          {myEffects.map(e => {
-            let Content = null;
-            let animationClass = '';
-            if (e.skillId.includes('plus')) { Content = <span className="text-4xl font-black text-green-400 drop-shadow-lg stroke-black">+1</span>; animationClass = 'effect-float'; } 
-            else if (e.skillId.includes('minus')) { Content = <span className="text-4xl font-black text-red-500 drop-shadow-lg stroke-black">-1</span>; animationClass = 'effect-float'; } 
-            else if (e.skillId === 'double') { Content = <div className="flex flex-col items-center"><span className="text-6xl">⚡</span><span className="text-4xl font-black text-yellow-300">x2</span></div>; animationClass = 'effect-lightning'; } 
-            else if (e.skillId === 'random') { Content = <div className="text-5xl font-bold text-purple-400">🎲</div>; animationClass = 'effect-roll'; } 
-            else if (e.skillId === 'retrieve') { Content = <div className="text-6xl text-blue-500">🌀</div>; animationClass = 'effect-spin'; } 
-            else if (e.skillId === 'nullify') { Content = <div className="text-8xl text-red-600 opacity-80">🚫</div>; animationClass = 'effect-stamp'; }
-            return <div key={e.id} className={`absolute ${animationClass}`}>{Content}</div>;
-          })}
-        </div>
-      );
-    };
-
     const DebugConsole = ({ isOpen, onClose, onAddSkill, onForceCard, aiHand, nextAiCard }) => {
       if (!isOpen) return null;
       return (
@@ -154,7 +128,6 @@
             <h3 className="font-bold text-green-400">🛠️ DEBUG MODE</h3>
             <button onClick={onClose} className="text-gray-400 hover:text-white">✕</button>
           </div>
-          
           <div className="space-y-3">
             <div>
               <p className="text-gray-400 mb-1">스킬 지급</p>
@@ -166,19 +139,13 @@
                 <button onClick={() => onAddSkill(document.getElementById('debug-skill-select').value, 'ai')} className="bg-red-700 text-white p-1 rounded hover:bg-red-600">AI에게</button>
               </div>
             </div>
-
             <div>
-              <p className="text-gray-400 mb-1">AI 다음 카드 강제 ({aiHand.length}장 남음)</p>
+              <p className="text-gray-400 mb-1">AI 다음 카드 ({aiHand.length}장)</p>
               <div className="flex flex-wrap gap-1 bg-gray-800 p-1 rounded max-h-24 overflow-y-auto custom-scroll">
                 {aiHand.map((c, i) => (
-                  <button key={`${c}-${i}`} 
-                    onClick={() => onForceCard(c)}
-                    className={`w-6 h-6 rounded ${nextAiCard === c ? 'bg-green-500 text-black font-bold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-                    {c}
-                  </button>
+                  <button key={`${c}-${i}`} onClick={() => onForceCard(c)} className={`w-6 h-6 rounded ${nextAiCard === c ? 'bg-green-500 text-black font-bold' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>{c}</button>
                 ))}
               </div>
-              {nextAiCard !== null && <div className="mt-1 text-green-400">예약됨: {nextAiCard}</div>}
             </div>
           </div>
         </div>
@@ -207,6 +174,7 @@
       const [aiThinking, setAiThinking] = useState(false);
       const [activeEffects, setActiveEffects] = useState([]);
       const [aiRetrievePending, setAiRetrievePending] = useState(false);
+      const [aiLevel, setAiLevel] = useState('Normal');
       
       const [showDebug, setShowDebug] = useState(false);
       const [debugModeActive, setDebugModeActive] = useState(false);
@@ -220,6 +188,7 @@
 
       const [leaderboard, setLeaderboard] = useState([]);
       const [showLeaderboard, setShowLeaderboard] = useState(false);
+      const [leaderboardTab, setLeaderboardTab] = useState('Normal'); // [NEW] Tab State
       const [showRules, setShowRules] = useState(false);
       const [playerName, setPlayerName] = useState('');
       const [isSubmitting, setIsSubmitting] = useState(false);
@@ -230,11 +199,7 @@
         const handleKeyDown = (e) => {
           const newInput = (inputBuffer + e.key).slice(-DEBUG_PASSWORD.length);
           setInputBuffer(newInput);
-          if (newInput === DEBUG_PASSWORD) {
-            setShowDebug(true);
-            setDebugModeActive(false);
-            setInputBuffer("");
-          }
+          if (newInput === DEBUG_PASSWORD) { setShowDebug(true); setDebugModeActive(false); setInputBuffer(""); }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
@@ -244,20 +209,13 @@
         let timer;
         if (aiThinking) {
           timer = setTimeout(() => {
-            if (aiThinking) {
-              console.warn("AI thinking timeout force release");
-              setAiThinking(false);
-              setMessage("AI 응답 시간 초과 - 턴 진행");
-            }
+            if (aiThinking) { console.warn("AI Timeout"); setAiThinking(false); setMessage("AI 응답 시간 초과 - 턴 진행"); }
           }, 5000);
         }
         return () => clearTimeout(timer);
       }, [aiThinking]);
 
-      const updateAiSkills = (newSkills) => {
-        setAiSkills(newSkills);
-        aiSkillsRef.current = newSkills;
-      };
+      const updateAiSkills = (newSkills) => { setAiSkills(newSkills); aiSkillsRef.current = newSkills; };
 
       const calculateValues = (logs) => {
         let p = originalPlayerCardRef.current;
@@ -268,7 +226,6 @@
           const stored = log.storedValue;
           let res = val;
           if(val === null || isNaN(val)) return;
-          
           switch(log.skillId) {
             case 'opp-plus': case 'self-plus': res = val+1>10?0:val+1; break;
             case 'opp-minus': case 'self-minus': res = val-1<0?10:val-1; break;
@@ -289,14 +246,17 @@
 
       const initGame = () => {
         const deck = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        setPlayerHand([...deck]);
-        setAiHand([...deck]);
-        setPlayerCard(null); setAiCard(null);
+        setPlayerHand([...deck]); setAiHand([...deck]); setPlayerCard(null); setAiCard(null);
         originalPlayerCardRef.current = null; originalAiCardRef.current = null;
-        setGameState('playing'); setTurnPhase('select');
-        setMessage('카드를 선택하세요'); setSkillLog([]);
+        setGameState('playing'); setTurnPhase('select'); setMessage('카드를 선택하세요'); setSkillLog([]);
         setResultType(null); setShowAiSkills(false); setAiThinking(false); setActiveEffects([]);
         setAiRetrievePending(false); setForceAiCard(null);
+      };
+
+      const resetCampaign = (level) => {
+        setAiLevel(level);
+        setRound(1); setPlayerScore(0); setAiScore(0); setPlayerSkills([]); updateAiSkills([]); 
+        initGame(); grantRoundSkills(1);
       };
 
       const grantRoundSkills = (num) => {
@@ -307,65 +267,91 @@
       };
 
       const aiRespond = (currentLogState, currentAiSkills) => {
-        if (currentAiSkills.length === 0) { setAiThinking(false); setMessage('스킬을 사용하거나 결과를 확인하세요'); return; }
         const { pCard, aCard } = calculateValues(currentLogState);
         const currentResult = getWinner(pCard, aCard);
+        
+        if (pCard === 0 && aCard === 10) { setAiThinking(false); setMessage('스킬을 사용하거나 결과를 확인하세요'); return; }
         if (currentResult === 'ai-win') { setAiThinking(false); setMessage('스킬을 사용하거나 결과를 확인하세요'); return; }
+        if (currentAiSkills.length === 0) { setAiThinking(false); setMessage('스킬을 사용하거나 결과를 확인하세요'); return; }
 
         let bestSkill = null;
+        let bestScore = -9999;
         let bestRandomVal = undefined;
-        const combatSkills = currentAiSkills.filter(s => !['nullify', 'retrieve', 'random'].includes(s.id));
 
-        for (const s of combatSkills) {
-          let tp = pCard, ta = aCard;
-          const val = s.id.startsWith('opp') ? tp : ta;
-          let res = val;
-          if(s.id.includes('plus')) res = val+1>10?0:val+1;
-          else if(s.id.includes('minus')) res = val-1<0?10:val-1;
-          else if(s.id === 'double') { let d = Math.floor(val)*2; res = d>10?d%10:d; }
-          
-          if(s.id.startsWith('opp')) tp=res; else ta=res;
-          const r = getWinner(tp, ta);
-          if (r === 'ai-win' || (r === 'draw' && currentResult === 'player-win')) { bestSkill = s; break; }
-        }
+        const availableSkills = currentAiSkills.filter(s => !['nullify', 'retrieve', 'random'].includes(s.id));
 
-        if (!bestSkill && currentResult === 'player-win') {
-          const randomSkill = currentAiSkills.find(s => s.id === 'random');
-          if (randomSkill) { bestSkill = randomSkill; bestRandomVal = Math.floor(Math.random()*11); }
-        }
-
-        if (!bestSkill && currentResult === 'player-win') {
-          const retrieveSkill = currentAiSkills.find(s => s.id === 'retrieve');
-          if (retrieveSkill) {
-             const newLog = { id: Date.now(), user: 'AI', skill: retrieveSkill, skillId: 'retrieve', target: 'ai', nullified: false };
-             const nextLogs = [...currentLogState, newLog];
-             setSkillLog(nextLogs);
-             updateAiSkills(currentAiSkills.filter(s => s.uniqueId !== retrieveSkill.uniqueId));
-             const id = Date.now();
-             setActiveEffects(prev => [...prev, { id, skillId: 'retrieve', target: 'ai' }]); setTimeout(()=>setActiveEffects(p=>p.filter(e=>e.id!==id)), 1000);
-             setMessage('AI가 회수를 사용했습니다! (무력화 가능)');
-             setAiRetrievePending(true); setAiThinking(false); return;
+        if (aiLevel === 'Normal') {
+          for (const s of availableSkills) {
+            let tp = pCard, ta = aCard;
+            if (s.id.startsWith('opp')) tp = s.id.includes('plus') ? (tp+1>10?0:tp+1) : (tp-1<0?10:tp-1);
+            else if (s.id === 'double') { let d = Math.floor(ta)*2; ta = d>10?d%10:d; }
+            else ta = s.id.includes('plus') ? (ta+1>10?0:ta+1) : (ta-1<0?10:ta-1);
+            
+            const res = getWinner(tp, ta);
+            if (res === 'ai-win' || (res === 'draw' && currentResult === 'player-win')) { bestSkill = s; break; }
           }
+        } else {
+          for (const s of availableSkills) {
+            let tp = pCard, ta = aCard;
+            if (s.id.startsWith('opp')) tp = s.id.includes('plus') ? (tp+1>10?0:tp+1) : (tp-1<0?10:tp-1);
+            else if (s.id === 'double') { let d = Math.floor(ta)*2; ta = d>10?d%10:d; }
+            else ta = s.id.includes('plus') ? (ta+1>10?0:ta+1) : (ta-1<0?10:ta-1);
+
+            let score = 0;
+            const res = getWinner(tp, ta);
+            const diff = Math.abs(tp - ta);
+            
+            if (tp===0 && ta===10) score = 1000; 
+            else if (res === 'ai-win') score = 100;
+            else if (res === 'draw' && currentResult === 'player-win') score = 50;
+            else if (currentResult === 'player-win' && currentAiSkills.length > 1) {
+               score = 10 - diff; 
+               if (diff === 1) score = -9999;
+            } else score = -100;
+
+            score -= (s.weight || 0);
+            if (score > bestScore && score > -50) { bestScore = score; bestSkill = s; }
+          }
+        }
+
+        const randomSkill = currentAiSkills.find(s => s.id === 'random');
+        if (!bestSkill && randomSkill && currentResult === 'player-win') {
+           let wins = 0;
+           for(let i=0; i<=10; i++) { if(getWinner(pCard, i) === 'ai-win') wins++; }
+           const threshold = aiLevel === 'Hard' ? 30 : 50;
+           if ((wins/11)*100 >= threshold) {
+              bestSkill = randomSkill;
+              bestRandomVal = Math.floor(Math.random() * 11);
+           }
+        }
+
+        const retrieveSkill = currentAiSkills.find(s => s.id === 'retrieve');
+        if (!bestSkill && currentResult === 'player-win' && retrieveSkill) {
+           const newLog = { id: Date.now(), user: 'AI', skill: retrieveSkill, skillId: 'retrieve', target: 'ai', nullified: false };
+           const nextLogs = [...currentLogState, newLog];
+           setSkillLog(nextLogs);
+           updateAiSkills(currentAiSkills.filter(s => s.uniqueId !== retrieveSkill.uniqueId));
+           const id = Date.now();
+           setActiveEffects(prev => [...prev, { id, skillId: 'retrieve', target: 'ai' }]); setTimeout(()=>setActiveEffects(p=>p.filter(e=>e.id!==id)), 1000);
+           setMessage('AI가 회수를 사용했습니다! (무력화 가능)');
+           setAiRetrievePending(true); setAiThinking(false);
+           return;
         }
 
         if (bestSkill) {
-          const target = bestSkill.id.startsWith('opp-') ? 'player' : 'ai';
-          const { pCard: prevP, aCard: prevA } = calculateValues(currentLogState);
-          const beforeVal = target==='player'?prevP:prevA;
+          const target = bestSkill.id.startsWith('opp') ? 'player' : 'ai';
           let afterVal;
-          if(bestSkill.id==='random') afterVal=bestRandomVal;
+          if (bestSkill.id === 'random') afterVal = bestRandomVal;
           else {
-             // manual recalc for log
-             if(bestSkill.id.includes('plus')) afterVal = beforeVal+1>10?0:beforeVal+1;
-             else if(bestSkill.id.includes('minus')) afterVal = beforeVal-1<0?10:beforeVal-1;
-             else if(bestSkill.id==='double') { let d=Math.floor(beforeVal)*2; afterVal=d>10?d%10:d; }
+             const val = target==='player'?pCard:aCard;
+             if(bestSkill.id.includes('plus')) afterVal=val+1>10?0:val+1;
+             else if(bestSkill.id.includes('minus')) afterVal=val-1<0?10:val-1;
+             else if(bestSkill.id==='double') { let d=Math.floor(val)*2; afterVal=d>10?d%10:d; }
           }
 
-          const newLog = { id: Date.now(), user: 'AI', skill: bestSkill, skillId: bestSkill.id, target, nullified: false, storedValue: bestRandomVal, beforeVal, afterVal };
+          const newLog = { id: Date.now(), user: 'AI', skill: bestSkill, skillId: bestSkill.id, target, nullified: false, storedValue: bestRandomVal, beforeVal: (target==='player'?pCard:aCard), afterVal };
           const nextLogs = [...currentLogState, newLog];
           setSkillLog(nextLogs);
-          const { pCard: np, aCard: na } = calculateValues(nextLogs);
-          setPlayerCard(np); setAiCard(na);
           const nextSkills = currentAiSkills.filter(s => s.uniqueId !== bestSkill.uniqueId);
           updateAiSkills(nextSkills);
           
@@ -378,6 +364,47 @@
         }
       };
 
+      const triggerAiReaction = (currentLogs, currentSkills) => {
+        setAiThinking(true);
+        setMessage('AI가 생각 중...');
+        setTimeout(() => aiRespond(currentLogs, currentSkills), 1000);
+      };
+
+      useEffect(() => {
+        if (aiThinking) return;
+        
+        const aiNullifyIndex = aiSkillsRef.current.findIndex(s => s.id === 'nullify');
+        if (turnPhase === 'skill' && aiNullifyIndex !== -1) {
+          const playerLogs = skillLog.filter(l => l.user === '플레이어' && !l.nullified);
+          const lastPlayerLog = playerLogs[playerLogs.length - 1];
+          
+          if (lastPlayerLog) {
+            const { pCard, aCard } = calculateValues(skillLog);
+            const currentWinner = getWinner(pCard, aCard);
+            
+            if (currentWinner === 'player-win') {
+              setAiThinking(true);
+              setTimeout(() => {
+                 const newLogs = skillLog.map(l => l.id === lastPlayerLog.id ? { ...l, nullified: true } : l);
+                 setSkillLog(newLogs);
+                 
+                 const nullifySkill = aiSkillsRef.current[aiNullifyIndex];
+                 const nextSkills = aiSkillsRef.current.filter(s => s.uniqueId !== nullifySkill.uniqueId);
+                 updateAiSkills(nextSkills);
+
+                 const recalculated = calculateValues(newLogs);
+                 setPlayerCard(recalculated.pCard); 
+                 setAiCard(recalculated.aCard);
+                 
+                 triggerEffect('nullify', lastPlayerLog.target);
+                 
+                 setTimeout(() => aiRespond(newLogs, nextSkills), 1000);
+              }, 1000);
+            }
+          }
+        }
+      }, [skillLog, turnPhase, aiThinking]);
+
       const playCard = (card) => {
         if (gameState !== 'playing' || turnPhase !== 'select') return;
         originalPlayerCardRef.current = card;
@@ -385,20 +412,15 @@
         setPlayerHand(prev => prev.filter(c => c !== card));
         
         let aiSelected;
-        if (forceAiCard !== null && aiHand.includes(forceAiCard)) {
-          aiSelected = forceAiCard;
-          setForceAiCard(null);
-        } else {
-          // AI Logic
+        if (forceAiCard !== null && aiHand.includes(forceAiCard)) { aiSelected = forceAiCard; setForceAiCard(null); } 
+        else {
           const p = aiPattern;
           let candidates = [...aiHand];
           if (p.totalMoves < 5) aiSelected = candidates[Math.floor(Math.random() * candidates.length)];
           else if (aiHand.length <= 5 && p.lateHigh > p.lateLow) {
              const lowCards = aiHand.filter(c => c <= 4);
              aiSelected = lowCards.length > 0 ? lowCards[Math.floor(Math.random() * lowCards.length)] : aiHand[Math.floor(Math.random() * aiHand.length)];
-          } else {
-             aiSelected = aiHand[Math.floor(Math.random() * aiHand.length)];
-          }
+          } else { aiSelected = aiHand[Math.floor(Math.random() * aiHand.length)]; }
         }
 
         originalAiCardRef.current = aiSelected;
@@ -429,7 +451,7 @@
         let rndVal = undefined;
         if (skill.id === 'random') rndVal = Math.floor(Math.random()*11);
         
-        const target = skill.id.startsWith('opp-') ? 'ai' : 'player';
+        const target = skill.id.startsWith('opp') ? 'ai' : 'player';
         const { pCard: prevP, aCard: prevA } = calculateValues(skillLog);
         const beforeVal = target==='player'?prevP:prevA;
         let afterVal;
@@ -515,10 +537,98 @@
       };
 
       const handleAddSkill = (skillId, target) => {
-        const newSkill = createSkill(skillId);
+        const newSkill = { ...SKILL_TYPES.find(s => s.id === skillId), uniqueId: Date.now() };
         if(target === 'player') setPlayerSkills(prev => [...prev, newSkill]);
         else updateAiSkills([...aiSkillsRef.current, newSkill]);
       };
+
+      const EffectLayer = ({ target }) => {
+        const myEffects = activeEffects.filter(e => e.target === target);
+        return (
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-50">
+            {myEffects.map(e => {
+              let Content = null;
+              let animationClass = '';
+              if (e.skillId.includes('plus')) { Content = <span className="text-4xl font-black text-green-400 drop-shadow-lg stroke-black">+1</span>; animationClass = 'effect-float'; } 
+              else if (e.skillId.includes('minus')) { Content = <span className="text-4xl font-black text-red-500 drop-shadow-lg stroke-black">-1</span>; animationClass = 'effect-float'; } 
+              else if (e.skillId === 'double') { Content = <div className="flex flex-col items-center"><span className="text-6xl">⚡</span><span className="text-4xl font-black text-yellow-300">x2</span></div>; animationClass = 'effect-lightning'; } 
+              else if (e.skillId === 'random') { Content = <div className="text-5xl font-bold text-purple-400">🎲</div>; animationClass = 'effect-roll'; } 
+              else if (e.skillId === 'retrieve') { Content = <div className="text-6xl text-blue-500">🌀</div>; animationClass = 'effect-spin'; } 
+              else if (e.skillId === 'nullify') { Content = <div className="text-8xl text-red-600 opacity-80">🚫</div>; animationClass = 'effect-stamp'; }
+              return <div key={e.id} className={`absolute ${animationClass}`}>{Content}</div>;
+            })}
+          </div>
+        );
+      };
+
+      // [NEW] Leaderboard Fetch Function with Tab Filter
+      const fetchLeaderboardWithFilter = async (mode) => {
+        if (!db) return;
+        try {
+          // Query for specific AI Level
+          const snapshot = await db.collection('scores')
+            .where('aiLevel', '==', mode)
+            .orderBy('score', 'desc')
+            .limit(10)
+            .get();
+          
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setLeaderboard(data);
+        } catch (error) {
+          console.error("Error fetching leaderboard:", error);
+        }
+      };
+
+      // [FIX] Effect to fetch data when tab changes
+      useEffect(() => {
+        if (showLeaderboard) {
+          fetchLeaderboardWithFilter(leaderboardTab);
+        }
+      }, [showLeaderboard, leaderboardTab]);
+
+      const LeaderboardModal = () => (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-pop">
+          <div className="bg-gray-800 w-full max-w-md rounded-xl border border-yellow-600/50 shadow-2xl p-6">
+            <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+              <h3 className="text-2xl font-bold text-yellow-400 flex items-center gap-2"><Icons.Trophy /> Top Rankers</h3>
+              <button onClick={() => setShowLeaderboard(false)} className="text-gray-400 hover:text-white text-xl font-bold p-2">&times;</button>
+            </div>
+            
+            {/* [NEW] Tabs */}
+            <div className="flex gap-2 mb-4">
+              <button 
+                onClick={() => setLeaderboardTab('Normal')} 
+                className={`flex-1 py-2 rounded font-bold transition ${leaderboardTab==='Normal' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+              >
+                Normal
+              </button>
+              <button 
+                onClick={() => setLeaderboardTab('Hard')} 
+                className={`flex-1 py-2 rounded font-bold transition ${leaderboardTab==='Hard' ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+              >
+                Hard
+              </button>
+            </div>
+
+            <div className="space-y-2 mb-6 overflow-y-auto max-h-64 custom-scroll">
+              {leaderboard.length === 0 ? (
+                <div className="text-gray-500 text-center py-4">기록이 없습니다.</div>
+              ) : (
+                leaderboard.map((entry, i) => (
+                  <div key={entry.id || i} className={`flex justify-between p-3 rounded ${i===0 ? 'bg-yellow-900/40 border border-yellow-600/30' : 'bg-gray-700'}`}>
+                    <div className="flex gap-3">
+                      <span className={`font-bold w-6 ${i===0 ? 'text-yellow-400' : i===1 ? 'text-gray-300' : i===2 ? 'text-amber-600' : 'text-gray-500'}`}>#{i+1}</span>
+                      <span className="text-white truncate max-w-[120px]">{entry.name}</span>
+                    </div>
+                    <span className="font-mono text-yellow-200 font-bold">{entry.score} pts</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <button onClick={() => setShowLeaderboard(false)} className="w-full py-3 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition active:scale-95">닫기</button>
+          </div>
+        </div>
+      );
 
       return (
         <div className="w-full min-h-screen flex items-center justify-center p-0 sm:p-4 overflow-hidden relative">
@@ -527,26 +637,18 @@
           {showLeaderboard && <LeaderboardModal />}
           {showRules && <RuleModal />}
           
-          {/* HIDDEN DEBUG TRIGGER */}
-          <button 
-            onClick={() => { if (!showDebug) { setDebugModeActive(true); setInputBuffer(""); } else setShowDebug(false); }} 
-            className={`fixed bottom-2 right-2 text-gray-600 hover:text-white z-[9999] transition duration-500 ${debugModeActive ? 'opacity-100 text-yellow-600' : 'opacity-20'}`}
-          >
-            <Icons.Settings/>
-          </button>
+          <button onClick={() => { if (!showDebug) { setDebugModeActive(true); setInputBuffer(""); } else setShowDebug(false); }} className={`fixed bottom-2 right-2 text-gray-600 hover:text-white z-[9999] transition duration-500 ${debugModeActive ? 'opacity-100 text-yellow-600' : 'opacity-20'}`}><Icons.Settings/></button>
           <DebugConsole isOpen={showDebug} onClose={() => setShowDebug(false)} onAddSkill={handleAddSkill} onForceCard={setForceAiCard} aiHand={aiHand} nextAiCard={forceAiCard} />
 
           <div className="w-full max-w-5xl bg-green-900/90 backdrop-blur-sm sm:rounded-3xl shadow-2xl border-x-0 sm:border border-green-700 overflow-hidden flex flex-col lg:flex-row h-screen sm:h-auto sm:min-h-[650px]">
-            {/* Left Panel */}
             <div className="flex-1 flex flex-col relative overflow-y-auto">
-              {/* AI Header */}
               <div className="bg-black/30 p-2 sm:p-3 flex justify-between items-center border-b border-white/10 shrink-0">
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2">
                     <span className="text-red-300 font-bold text-sm">AI OPPONENT</span>
                     {aiThinking && <span className="text-yellow-400 text-xs animate-thinking">🤔 생각 중...</span>}
                   </div>
-                  <span className="text-xs text-gray-400">Lv. Aggressive</span>
+                  <span className="text-xs text-gray-400">Lv. {aiLevel}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <button onClick={() => setShowAiSkills(!showAiSkills)} className={`p-1.5 rounded-full transition-colors ${showAiSkills ? 'bg-yellow-500 text-black' : 'bg-gray-700 text-gray-400 hover:text-white'}`}>
@@ -556,7 +658,6 @@
                 </div>
               </div>
 
-              {/* AI Field */}
               <div className="flex-1 flex flex-col items-center justify-center p-2 gap-4 min-h-[200px]">
                 <div className={`flex flex-wrap justify-center gap-1.5 transition-all duration-300 ${showAiSkills ? 'min-h-[60px]' : 'h-8'}`}>
                   {aiSkills.map((skill) => (
@@ -577,7 +678,6 @@
                 </div>
               </div>
 
-              {/* Message */}
               <div className={`py-2 text-center transition-colors duration-300 shrink-0 ${resultType === 'win' ? 'bg-blue-600/50' : resultType === 'lose' ? 'bg-red-600/50' : 'bg-black/20'}`}>
                 <h2 className="text-yellow-400 font-bold text-xs uppercase tracking-widest mb-1">Round {round} / {MAX_ROUNDS}</h2>
                 <div className="text-lg sm:text-xl text-white font-bold drop-shadow-md animate-pop px-2">{message}</div>
@@ -588,7 +688,6 @@
                 )}
               </div>
 
-              {/* Player Field */}
               <div className="flex-1 flex flex-col items-center justify-start p-2 sm:p-4 gap-3 bg-black/10">
                  <div className="flex justify-center relative">
                     {playerCard !== null ? <Card number={playerCard} isSelected={true} /> : <div className="w-14 h-20 sm:w-16 sm:h-24 border-2 border-dashed border-blue-400/30 rounded-lg flex items-center justify-center text-blue-200/30 text-sm">Select</div>}
@@ -629,9 +728,27 @@
 
             {/* Overlay Screens */}
             {gameState === 'start' && (
-              <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6 text-center">
+              <div className="absolute inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-6 text-center animate-pop">
                 <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 mb-6">ZERO POINT</h1>
-                <div className="flex flex-col sm:flex-row gap-4"><button onClick={resetCampaign} className="px-8 py-4 bg-yellow-500 font-bold rounded-full shadow-lg hover:scale-105 transition">START GAME</button><button onClick={() => setShowLeaderboard(true)} className="px-6 py-4 bg-gray-700 text-white font-bold rounded-full">RANKING</button><button onClick={() => setShowRules(true)} className="px-6 py-4 bg-green-700 text-white font-bold rounded-full">📖 설명</button></div>
+                <div className="bg-green-800/50 border border-green-500/30 p-6 rounded-xl max-w-md w-full mb-8 text-white text-sm space-y-2 backdrop-blur">
+                  <p>★ <strong>5라운드</strong> 점수 경쟁 (높은 점수 승리)</p>
+                  <p>★ <strong>작은 숫자</strong> 승리 (단, 10은 0을 이김)</p>
+                  <p>★ 1점차/무승부 시 스킬 1장, <strong>10 vs 0</strong> 승리 시 2장!</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-md justify-center">
+                  <button onClick={() => resetCampaign('Normal')} className="px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg transition transform hover:scale-105 flex flex-col items-center">
+                    <span className="text-lg">NORMAL MODE</span>
+                    <span className="text-xs opacity-80 font-normal">가볍게 즐기기</span>
+                  </button>
+                  <button onClick={() => resetCampaign('Hard')} className="px-8 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg shadow-lg transition transform hover:scale-105 flex flex-col items-center">
+                    <span className="text-lg">HARD MODE</span>
+                    <span className="text-xs opacity-80 font-normal">도전적인 AI</span>
+                  </button>
+                </div>
+                <div className="mt-6 flex gap-4">
+                  <button onClick={() => setShowLeaderboard(true)} className="px-4 py-2 bg-gray-700 text-gray-300 rounded-full text-xs hover:text-white">🏆 랭킹 보기</button>
+                  <button onClick={() => setShowRules(true)} className="px-4 py-2 bg-gray-700 text-gray-300 rounded-full text-xs hover:text-white">📖 게임 설명</button>
+                </div>
               </div>
             )}
             {gameState === 'round-end' && (
